@@ -1,7 +1,6 @@
 import streamlit as st
 import requests
 import pandas as pd
-import io
 import plotly.express as px
 
 # ==========================================
@@ -46,49 +45,60 @@ def simular_evolucao(capital_inicial, aporte_mensal, taxa_anual, ipca_anual, mes
         
         lucro_parcial = saldo_atual - total_investido
         aliquota_atual = 0 if isento_ir else obter_aliquota_ir(mes if mes > 0 else 1)
-        saldo_liquido = saldo_atual - (lucro_parcial * aliquota_atual)
+        imposto_parcial = lucro_parcial * aliquota_atual
+        saldo_liquido = saldo_atual - imposto_parcial
         
         historico.append({
             "Mês": mes,
             "Total Investido": round(total_investido, 2),
             "Saldo Líquido": round(saldo_liquido, 2),
-            "Poder de Compra (Real)": round(saldo_real - (lucro_parcial * aliquota_atual if not isento_ir else 0), 2)
+            "Poder de Compra (Real)": round(saldo_real - imposto_parcial, 2)
         })
     
-    return pd.DataFrame(historico), total_investido, saldo_liquido
+    # Retornos extras para mostrar o Imposto
+    lucro_bruto_final = saldo_atual - total_investido
+    aliquota_final = 0 if isento_ir else obter_aliquota_ir(meses)
+    imposto_final = lucro_bruto_final * aliquota_final
+    
+    return pd.DataFrame(historico), total_investido, saldo_liquido, imposto_final, aliquota_final
 
 # ==========================================
-# 2. FRONTEND (INTERFACE)
+# 2. FRONTEND E VARIÁVEIS DE SESSÃO
 # ==========================================
 
 st.set_page_config(page_title="InvestSim - Pro", layout="wide")
+
+# O "Cérebro" da interface dinâmica: Quantos ativos o usuário quer comparar?
+if "num_ativos" not in st.session_state:
+    st.session_state["num_ativos"] = 1
+
+def adicionar_ativo():
+    st.session_state["num_ativos"] += 1
+
 st.title("🚀 InvestSim Pro: Simulador e Carteira")
 
 selic, cdi, ipca = obter_taxas_atuais()
-
 st.info(f"**Taxas Oficiais Atualizadas:** Selic: **{selic*100:.2f}% a.a.** | CDI: **{cdi*100:.2f}% a.a.** | IPCA (12m): **{ipca*100:.2f}%**")
 
 # ==========================================
-# BARRA LATERAL (CONTROLES COM TESOURO)
+# BARRA LATERAL (CONTROLES DINÂMICOS)
 # ==========================================
 st.sidebar.header("💰 Configurações Gerais")
 
-cap_inicial = st.sidebar.number_input("Investimento Inicial (R$)", value=1000.0, help="O valor que você já tem em mãos para começar a investir hoje.")
-aporte = st.sidebar.number_input("Aporte Mensal (R$)", value=500.0, help="Quanto você vai depositar todos os meses.")
-meses = st.sidebar.slider("Prazo (Meses)", 1, 120, 24, help="Tempo total do investimento.")
+cap_inicial = st.sidebar.number_input("Investimento Inicial (R$)", value=1000.0)
+aporte = st.sidebar.number_input("Aporte Mensal (R$)", value=500.0)
+meses = st.sidebar.slider("Prazo (Meses)", 1, 120, 24)
 
 def menu_ativo(n):
     st.sidebar.markdown(f"### Ativo {n}")
     
-    # Adicionamos os títulos do Tesouro Direto aqui!
     tipo = st.sidebar.selectbox(
         f"Tipo", 
         ["CDB", "LCI/LCA", "Poupança", "Tesouro Selic", "Tesouro Prefixado", "Tesouro IPCA+"], 
-        key=f"t{n}", 
-        help="CDB e Tesouro sofrem desconto de IR. LCI, LCA e Poupança são isentos."
+        key=f"t{n}"
     )
     
-    isento = False # Por padrão, todos pagam IR, exceto se alterarmos abaixo
+    isento = False 
     taxa = 0.0
     
     if tipo == "Poupança":
@@ -106,49 +116,79 @@ def menu_ativo(n):
         st.sidebar.caption("Rende 100% da Taxa Selic.")
         
     elif tipo == "Tesouro Prefixado":
-        taxa_pre = st.sidebar.number_input("Taxa Prefixada (% a.a.)", value=10.5, step=0.1, key=f"pre{n}", help="Taxa fixa anual que não muda.")
+        taxa_pre = st.sidebar.number_input("Taxa Prefixada (% a.a.)", value=10.5, step=0.1, key=f"pre{n}")
         taxa = taxa_pre / 100
         
     elif tipo == "Tesouro IPCA+":
-        taxa_fixa = st.sidebar.number_input("Taxa Fixa + IPCA (% a.a.)", value=5.5, step=0.1, key=f"ipca{n}", help="Paga a inflação (IPCA) mais esta taxa fixa.")
-        # Matemática de juros sobre juros (Inflação + Taxa)
+        taxa_fixa = st.sidebar.number_input("Taxa Fixa + IPCA (% a.a.)", value=5.5, step=0.1, key=f"ipca{n}")
         taxa = ((1 + ipca) * (1 + (taxa_fixa / 100))) - 1
 
     return f"{tipo} {n}", taxa, isento
 
-st.sidebar.divider()
-n1, t1, i1 = menu_ativo(1)
-st.sidebar.divider()
-n2, t2, i2 = menu_ativo(2)
+# Loop que gera os menus baseado na quantidade que o usuário pediu
+ativos_configurados = []
+for i in range(1, st.session_state["num_ativos"] + 1):
+    st.sidebar.divider()
+    n_ativo, t_ativo, i_ativo = menu_ativo(i)
+    ativos_configurados.append({"nome": n_ativo, "taxa": t_ativo, "isento": i_ativo})
 
-btn_simular = st.sidebar.button("Simular e Comparar", type="primary", use_container_width=True)
+st.sidebar.divider()
+# Botão para adicionar mais abas de comparação
+st.sidebar.button("➕ Adicionar outro ativo para comparar", on_click=adicionar_ativo, use_container_width=True)
+btn_simular = st.sidebar.button("🚀 Simular Investimento", type="primary", use_container_width=True)
 
 # ==========================================
 # ÁREA PRINCIPAL
 # ==========================================
-aba_comparador, aba_carteira = st.tabs(["📊 Comparador de Ativos", "🥧 Distribuição de Carteira"])
+aba_simulador, aba_carteira = st.tabs(["📊 Simulador", "🥧 Distribuição de Carteira"])
 
-with aba_comparador:
+with aba_simulador:
     if btn_simular:
-        df1, total, liq1 = simular_evolucao(cap_inicial, aporte, t1, ipca, meses, i1)
-        df2, _, liq2 = simular_evolucao(cap_inicial, aporte, t2, ipca, meses, i2)
+        resultados = []
         
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Dinheiro Investido", f"R$ {total:,.2f}", help="Soma do valor inicial com os aportes.")
-        c2.metric(n1, f"R$ {liq1:,.2f}", f"Ganho Real: R$ {df1['Poder de Compra (Real)'].iloc[-1] - total:,.2f}", delta_color="normal")
-        c3.metric(n2, f"R$ {liq2:,.2f}", f"Ganho Real: R$ {df2['Poder de Compra (Real)'].iloc[-1] - total:,.2f}", delta_color="normal")
+        # Roda a simulação para todos os ativos configurados
+        for cfg in ativos_configurados:
+            df, total, liq, imp, aliq = simular_evolucao(cap_inicial, aporte, cfg["taxa"], ipca, meses, cfg["isento"])
+            resultados.append({
+                "nome": cfg["nome"],
+                "df": df,
+                "total_investido": total,
+                "liquido": liq,
+                "imposto_pago": imp,
+                "aliquota": aliq
+            })
+            
+        st.success(f"**Total Investido (Seu dinheiro tirado do bolso):** R$ {resultados[0]['total_investido']:,.2f}")
+        
+        # Cria colunas dinâmicas dependendo de quantos ativos existem
+        colunas = st.columns(len(resultados))
+        
+        for idx, res in enumerate(resultados):
+            with colunas[idx]:
+                st.subheader(res["nome"])
+                ganho_real = res['df']['Poder de Compra (Real)'].iloc[-1] - res['total_investido']
+                
+                st.metric("Resgate Líquido", f"R$ {res['liquido']:,.2f}", f"Ganho Real: R$ {ganho_real:,.2f}")
+                
+                # Exibição clara e transparente do Imposto de Renda
+                if res['aliquota'] == 0:
+                    st.info("🟢 **Isento de Imposto de Renda**")
+                else:
+                    st.warning(f"🔴 **Imposto Retido:** R$ {res['imposto_pago']:,.2f} ({res['aliquota']*100:.1f}%)")
 
+        # Gráfico Dinâmico (Junta todos os DataFrames)
         st.subheader("Evolução do Poder de Compra (Ganho Real)")
-        chart_data = pd.DataFrame({
-            "Mês": df1["Mês"],
-            f"{n1} (Real)": df1["Poder de Compra (Real)"],
-            f"{n2} (Real)": df2["Poder de Compra (Real)"],
-            "Investimento": df1["Total Investido"]
-        }).set_index("Mês")
+        chart_data = pd.DataFrame({"Mês": resultados[0]['df']["Mês"]}).set_index("Mês")
+        chart_data["Seu Dinheiro Investido"] = resultados[0]['df']["Total Investido"]
+        
+        for res in resultados:
+            chart_data[f"{res['nome']}"] = res['df']["Poder de Compra (Real)"]
+            
         st.line_chart(chart_data)
     else:
-        st.write("👈 Configure os seus investimentos na barra lateral e clique em **Simular e Comparar**.")
+        st.write("👈 Configure os seus investimentos na barra lateral e clique em **Simular Investimento**.")
 
+# --- ABA 2: CARTEIRA (Mantida exatamente igual) ---
 with aba_carteira:
     st.subheader("Planeie a sua Carteira Ideal")
     st.write("Ajuste os pesos percentuais abaixo para ver a distribuição do seu patrimônio.")

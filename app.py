@@ -8,11 +8,15 @@ st.set_page_config(page_title="InvestSim - Pro", layout="wide")
 
 esconder_menu = """
     <style>
-    /* 1. Remove APENAS o bloco de ações da direita (Share, Avatar, 3 pontinhos) */
+    /* 1. Esconde pela posição: apaga o último bloco dentro do cabeçalho (que é o menu da direita) */
+    header > div:last-child {display: none !important;}
+    
+    /* 2. Mantém a redundância pelos nomes técnicos caso a estrutura mude novamente */
     [data-testid="stHeaderActionElements"] {display: none !important;}
     .stAppHeaderActionElements {display: none !important;}
+    [data-testid="stToolbar"] {display: none !important;}
     
-    /* 2. Esconde a marca de água e botão vermelho de Deploy no canto inferior */
+    /* 3. Esconde o rodapé e os botões flutuantes inferiores */
     footer {display: none !important;}
     [data-testid="stAppDeployButton"] {display: none !important;}
     [data-testid="viewerBadge"] {display: none !important;}
@@ -20,6 +24,7 @@ esconder_menu = """
     </style>
     """
 st.markdown(esconder_menu, unsafe_allow_html=True)
+
 # ==========================================
 # 1. FUNÇÕES DE BACKEND (DADOS E MATEMÁTICA)
 # ==========================================

@@ -8,27 +8,18 @@ st.set_page_config(page_title="InvestSim - Pro", layout="wide")
 
 esconder_menu = """
     <style>
-    /* 1. Força o cabeçalho a ficar visível para a seta da barra lateral não sumir */
-    header {visibility: visible !important;}
-
-    /* 2. Esconde o menu do topo à direita (Share, Github, 3 pontinhos) nas versões novas e antigas */
+    /* 1. Remove APENAS o bloco de ações da direita (Share, Avatar, 3 pontinhos) */
     [data-testid="stHeaderActionElements"] {display: none !important;}
-    [data-testid="stToolbar"] {display: none !important;}
+    .stAppHeaderActionElements {display: none !important;}
     
-    /* 3. Esconde a linha colorida no topo */
-    [data-testid="stDecoration"] {display: none !important;}
-    
-    /* 4. Esconde o rodapé padrão */
+    /* 2. Esconde a marca de água e botão vermelho de Deploy no canto inferior */
     footer {display: none !important;}
-    
-    /* 5. Esconde o botão vermelho de Deploy e a marca de água */
     [data-testid="stAppDeployButton"] {display: none !important;}
     [data-testid="viewerBadge"] {display: none !important;}
     .viewerBadge_container {display: none !important;}
     </style>
     """
 st.markdown(esconder_menu, unsafe_allow_html=True)
-
 # ==========================================
 # 1. FUNÇÕES DE BACKEND (DADOS E MATEMÁTICA)
 # ==========================================

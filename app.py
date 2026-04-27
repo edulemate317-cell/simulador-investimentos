@@ -3,17 +3,17 @@ import requests
 import pandas as pd
 import plotly.express as px
 
-# --- COLOQUE O CÓDIGO AQUI (Logo abaixo dos imports) ---
+# --- NOVO CÓDIGO: Corta a metade direita do cabeçalho fora ---
 st.set_page_config(page_title="InvestSim - Pro", layout="wide")
 
 esconder_menu = """
     <style>
-    /* 1. A GUILHOTINA: Corta 80% do lado direito do cabeçalho. A setinha (na esquerda) sobrevive perfeitamente! */
+    /* 1. A GUILHOTINA: Corta 80% do lado direito do cabeçalho. A setinha sobrevive perfeitamente! */
     header {
         clip-path: inset(0 80% 0 0) !important;
     }
     
-    /* 2. Remove a linha colorida no topo que ficaria cortada pela metade */
+    /* 2. Remove a linha colorida no topo */
     [data-testid="stDecoration"] {display: none !important;}
     
     /* 3. Esconde o rodapé e a marca d'água inferior */
@@ -24,6 +24,7 @@ esconder_menu = """
     </style>
     """
 st.markdown(esconder_menu, unsafe_allow_html=True)
+# ----------------------------------------------------------------------------
 
 # ==========================================
 # 1. FUNÇÕES DE BACKEND (DADOS E MATEMÁTICA)
@@ -77,7 +78,6 @@ def simular_evolucao(capital_inicial, aporte_mensal, taxa_anual, ipca_anual, mes
             "Poder de Compra (Real)": round(saldo_real - imposto_parcial, 2)
         })
     
-    # Retornos extras para mostrar o Imposto
     lucro_bruto_final = saldo_atual - total_investido
     aliquota_final = 0 if isento_ir else obter_aliquota_ir(meses)
     imposto_final = lucro_bruto_final * aliquota_final
@@ -88,9 +88,6 @@ def simular_evolucao(capital_inicial, aporte_mensal, taxa_anual, ipca_anual, mes
 # 2. FRONTEND E VARIÁVEIS DE SESSÃO
 # ==========================================
 
-st.set_page_config(page_title="InvestSim - Pro", layout="wide")
-
-# O "Cérebro" da interface dinâmica: Quantos ativos o usuário quer comparar?
 if "num_ativos" not in st.session_state:
     st.session_state["num_ativos"] = 1
 
@@ -103,12 +100,13 @@ selic, cdi, ipca = obter_taxas_atuais()
 st.info(f"**Taxas Oficiais Atualizadas:** Selic: **{selic*100:.2f}% a.a.** | CDI: **{cdi*100:.2f}% a.a.** | IPCA (12m): **{ipca*100:.2f}%**")
 
 # ==========================================
-# BARRA LATERAL (CONTROLES DINÂMICOS)
+# BARRA LATERAL
 # ==========================================
 st.sidebar.header("💰 Configurações Gerais")
 
-cap_inicial = st.sidebar.number_input("Investimento Inicial (R$)", value=1000.0)
-aporte = st.sidebar.number_input("Aporte Mensal (R$)", value=500.0)
+# Adicionado o step=100.0 para pular de 100 em 100
+cap_inicial = st.sidebar.number_input("Investimento Inicial (R$)", value=1000.0, step=100.0)
+aporte = st.sidebar.number_input("Aporte Mensal (R$)", value=500.0, step=100.0)
 meses = st.sidebar.slider("Prazo (Meses)", 1, 120, 24)
 
 def menu_ativo(n):
@@ -129,7 +127,8 @@ def menu_ativo(n):
         st.sidebar.caption("Isenta de IR.")
         
     elif tipo in ["CDB", "LCI/LCA"]:
-        perc = st.sidebar.number_input("% do CDI", value=100.0, key=f"p{n}")
+        # Adicionado o step=1.0
+        perc = st.sidebar.number_input("% do CDI", value=100.0, step=1.0, key=f"p{n}")
         taxa = cdi * (perc/100)
         isento = (tipo == "LCI/LCA")
         
@@ -147,7 +146,6 @@ def menu_ativo(n):
 
     return f"{tipo} {n}", taxa, isento
 
-# Loop que gera os menus baseado na quantidade que o usuário pediu
 ativos_configurados = []
 for i in range(1, st.session_state["num_ativos"] + 1):
     st.sidebar.divider()
@@ -155,7 +153,6 @@ for i in range(1, st.session_state["num_ativos"] + 1):
     ativos_configurados.append({"nome": n_ativo, "taxa": t_ativo, "isento": i_ativo})
 
 st.sidebar.divider()
-# Botão para adicionar mais abas de comparação
 st.sidebar.button("➕ Adicionar outro ativo para comparar", on_click=adicionar_ativo, use_container_width=True)
 btn_simular = st.sidebar.button("🚀 Simular Investimento", type="primary", use_container_width=True)
 
@@ -168,7 +165,6 @@ with aba_simulador:
     if btn_simular:
         resultados = []
         
-        # Roda a simulação para todos os ativos configurados
         for cfg in ativos_configurados:
             df, total, liq, imp, aliq = simular_evolucao(cap_inicial, aporte, cfg["taxa"], ipca, meses, cfg["isento"])
             resultados.append({
@@ -182,7 +178,6 @@ with aba_simulador:
             
         st.success(f"**Total Investido (Seu dinheiro tirado do bolso):** R$ {resultados[0]['total_investido']:,.2f}")
         
-        # Cria colunas dinâmicas dependendo de quantos ativos existem
         colunas = st.columns(len(resultados))
         
         for idx, res in enumerate(resultados):
@@ -192,13 +187,11 @@ with aba_simulador:
                 
                 st.metric("Resgate Líquido", f"R$ {res['liquido']:,.2f}", f"Ganho Real: R$ {ganho_real:,.2f}")
                 
-                # Exibição clara e transparente do Imposto de Renda
                 if res['aliquota'] == 0:
                     st.info("🟢 **Isento de Imposto de Renda**")
                 else:
                     st.warning(f"🔴 **Imposto Retido:** R$ {res['imposto_pago']:,.2f} ({res['aliquota']*100:.1f}%)")
 
-        # Gráfico Dinâmico (Junta todos os DataFrames)
         st.subheader("Evolução do Poder de Compra (Ganho Real)")
         chart_data = pd.DataFrame({"Mês": resultados[0]['df']["Mês"]}).set_index("Mês")
         chart_data["Seu Dinheiro Investido"] = resultados[0]['df']["Total Investido"]
@@ -210,49 +203,53 @@ with aba_simulador:
     else:
         st.write("👈 Configure os seus investimentos na barra lateral e clique em **Simular Investimento**.")
 
-# --- ABA 2: CARTEIRA (Mantida exatamente igual) ---
+# --- ABA 2: CARTEIRA INTELIGENTE ---
 with aba_carteira:
     st.subheader("Planeie a sua Carteira Ideal")
-    st.write("Ajuste os pesos percentuais abaixo para ver a distribuição do seu patrimônio.")
+    st.write("Ajuste os pesos percentuais abaixo. A **Reserva de Emergência** é calculada automaticamente para garantir os 100%.")
     
     patrimonio_total = st.number_input("Patrimônio Total Disponível (R$)", value=50000.0, step=1000.0)
     
     col_p1, col_p2, col_p3 = st.columns(3)
+    
+    # 1º Slider é livre de 0 a 100
     perc_cdb = col_p1.slider("Renda Fixa (CDB e Tesouro)", 0, 100, 50)
-    perc_lci = col_p2.slider("Isentos (LCI/LCA)", 0, 100, 30)
-    perc_caixa = col_p3.slider("Reserva de Emergência", 0, 100, 20)
     
-    total_perc = perc_cdb + perc_lci + perc_caixa
+    # 2º Slider se ajusta magicamente ao que sobrou do primeiro
+    max_lci = 100 - perc_cdb
+    default_lci = 30 if max_lci >= 30 else max_lci
+    perc_lci = col_p2.slider("Isentos (LCI/LCA)", 0, max_lci, default_lci)
     
-    if total_perc != 100:
-        st.error(f"⚠️ Atenção: A soma das percentagens está em **{total_perc}%**. Ajuste para exatamente 100%.")
-    else:
-        dados_carteira = pd.DataFrame({
-            "Investimento": ["Renda Fixa Geral", "LCI/LCA", "Reserva (Poupança)"],
-            "Valor (R$)": [
-                patrimonio_total * (perc_cdb / 100),
-                patrimonio_total * (perc_lci / 100),
-                patrimonio_total * (perc_caixa / 100)
-            ]
-        })
+    # 3º Valor é calculado pelo sistema
+    perc_caixa = 100 - perc_cdb - perc_lci
+    col_p3.metric("Reserva de Emergência", f"{perc_caixa}%", help="Calculado automaticamente pelo sistema.")
+    
+    dados_carteira = pd.DataFrame({
+        "Investimento": ["Renda Fixa Geral", "LCI/LCA", "Reserva (Poupança)"],
+        "Valor (R$)": [
+            patrimonio_total * (perc_cdb / 100),
+            patrimonio_total * (perc_lci / 100),
+            patrimonio_total * (perc_caixa / 100)
+        ]
+    })
+    
+    c_grafico, c_tabela = st.columns([2, 1])
+    
+    with c_grafico:
+        fig = px.pie(
+            dados_carteira, 
+            values='Valor (R$)', 
+            names='Investimento', 
+            hole=0.4,
+            color_discrete_sequence=['#3b82f6', '#10b981', '#f59e0b']
+        )
+        fig.update_layout(margin=dict(t=0, b=0, l=0, r=0))
+        st.plotly_chart(fig, use_container_width=True)
         
-        c_grafico, c_tabela = st.columns([2, 1])
-        
-        with c_grafico:
-            fig = px.pie(
-                dados_carteira, 
-                values='Valor (R$)', 
-                names='Investimento', 
-                hole=0.4,
-                color_discrete_sequence=['#3b82f6', '#10b981', '#f59e0b']
-            )
-            fig.update_layout(margin=dict(t=0, b=0, l=0, r=0))
-            st.plotly_chart(fig, use_container_width=True)
-            
-        with c_tabela:
-            st.markdown("<br><br>", unsafe_allow_html=True)
-            st.dataframe(
-                dados_carteira.style.format({"Valor (R$)": "R$ {:,.2f}"}),
-                hide_index=True,
-                use_container_width=True
-            )
+    with c_tabela:
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        st.dataframe(
+            dados_carteira.style.format({"Valor (R$)": "R$ {:,.2f}"}),
+            hide_index=True,
+            use_container_width=True
+        )

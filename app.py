@@ -8,15 +8,13 @@ st.set_page_config(page_title="InvestSim - Pro", layout="wide")
 
 esconder_menu = """
     <style>
-    /* 1. Esconde pela posição: apaga o último bloco dentro do cabeçalho (que é o menu da direita) */
-    header > div:last-child {display: none !important;}
+    /* 1. Deixa o cabeçalho inteiro invisível (mata o Fork, Github, 3 pontinhos, etc) */
+    header {visibility: hidden !important;}
     
-    /* 2. Mantém a redundância pelos nomes técnicos caso a estrutura mude novamente */
-    [data-testid="stHeaderActionElements"] {display: none !important;}
-    .stAppHeaderActionElements {display: none !important;}
-    [data-testid="stToolbar"] {display: none !important;}
+    /* 2. RESSUSCITA apenas o botão da setinha para abrir o menu lateral */
+    [data-testid="collapsedControl"] {visibility: visible !important;}
     
-    /* 3. Esconde o rodapé e os botões flutuantes inferiores */
+    /* 3. Esconde o rodapé e os botões flutuantes inferiores (sua foto e marca d'água) */
     footer {display: none !important;}
     [data-testid="stAppDeployButton"] {display: none !important;}
     [data-testid="viewerBadge"] {display: none !important;}

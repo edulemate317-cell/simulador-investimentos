@@ -48,11 +48,15 @@ def obter_taxas_atuais():
         return 0.1050, 0.1040, 0.0450 
 
 def obter_aliquota_ir(meses):
-    dias = meses * 30
-    if dias <= 180: return 0.225
-    elif dias <= 360: return 0.200
-    elif dias <= 720: return 0.175
-    else: return 0.150
+    # Ajuste para bater com o padrão de mercado (12 meses = 17.5% / 24 meses = 15%)
+    if meses < 6: 
+        return 0.225
+    elif meses < 12: 
+        return 0.200
+    elif meses < 24: 
+        return 0.175
+    else: 
+        return 0.150
 
 def simular_evolucao(capital_inicial, aporte_mensal, taxa_anual, ipca_anual, meses, isento_ir):
     taxa_mensal = (1 + taxa_anual) ** (1 / 12) - 1

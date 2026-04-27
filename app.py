@@ -21,6 +21,10 @@ esconder_menu = """
     [data-testid="stAppDeployButton"] {display: none !important;}
     [data-testid="viewerBadge"] {display: none !important;}
     .viewerBadge_container {display: none !important;}
+    
+    /* 4. EXTERMINADOR DE LINKS: Remove os ícones de corrente ao lado dos títulos */
+    .header-anchor {display: none !important;}
+    h1 a, h2 a, h3 a, h4 a, h5 a, h6 a {display: none !important;}
     </style>
     """
 st.markdown(esconder_menu, unsafe_allow_html=True)

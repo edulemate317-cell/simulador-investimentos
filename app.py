@@ -8,13 +8,16 @@ st.set_page_config(page_title="InvestSim - Pro", layout="wide")
 
 esconder_menu = """
     <style>
-    /* 1. Deixa o menu da direita transparente e impossível de clicar */
-    .stApp > header > div:last-child {
-        opacity: 0 !important;
-        pointer-events: none !important;
-    }
+    /* 1. Esconde qualquer link (como o ícone do GitHub) dentro do cabeçalho */
+    header a {display: none !important;}
     
-    /* 2. Esconde o rodapé e os botões flutuantes inferiores (sua foto e marca d'água) */
+    /* 2. Esconde TODOS os botões do cabeçalho (Fork, 3 pontinhos), EXCETO a setinha */
+    header button:not([data-testid="collapsedControl"]) {display: none !important;}
+    
+    /* 3. Garantia extra contra as caixas padrão do menu */
+    [data-testid="stHeaderActionElements"] {display: none !important;}
+    
+    /* 4. Esconde o rodapé e a marca d'água inferior */
     footer {display: none !important;}
     [data-testid="stAppDeployButton"] {display: none !important;}
     [data-testid="viewerBadge"] {display: none !important;}

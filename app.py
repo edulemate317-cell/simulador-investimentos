@@ -3,6 +3,19 @@ import requests
 import pandas as pd
 import plotly.express as px
 
+# --- NOVO CÓDIGO: Configura a página e esconde os menus da barra superior ---
+st.set_page_config(page_title="InvestSim - Pro", layout="wide")
+
+esconder_menu = """
+    <style>
+    #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
+    </style>
+    """
+st.markdown(esconder_menu, unsafe_allow_html=True)
+# ----------------------------------------------------------------------------
+
 # ==========================================
 # 1. FUNÇÕES DE BACKEND (DADOS E MATEMÁTICA)
 # ==========================================

@@ -212,18 +212,25 @@ with aba_carteira:
     
     col_p1, col_p2, col_p3 = st.columns(3)
     
-    # 1º Slider é livre de 0 a 100
+    # 1º Slider: Renda Fixa
     perc_cdb = col_p1.slider("Renda Fixa (CDB e Tesouro)", 0, 100, 50)
     
-    # 2º Slider se ajusta magicamente ao que sobrou do primeiro
+    # Cálculo do que sobra para o 2º Slider
     max_lci = 100 - perc_cdb
-    default_lci = 30 if max_lci >= 30 else max_lci
-    perc_lci = col_p2.slider("Isentos (LCI/LCA)", 0, max_lci, default_lci)
     
-    # 3º Valor é calculado pelo sistema
+    # CORREÇÃO DO ERRO: Só cria o slider se houver espaço (max_lci > 0)
+    if max_lci > 0:
+        default_lci = 30 if max_lci >= 30 else max_lci
+        perc_lci = col_p2.slider("Isentos (LCI/LCA)", 0, max_lci, default_lci)
+    else:
+        # Se não sobrar nada, mostramos o slider "congelado" em 0
+        perc_lci = col_p2.slider("Isentos (LCI/LCA)", 0, 100, 0, disabled=True)
+    
+    # 3º Valor: Automático (O que sobrar depois dos dois acima)
     perc_caixa = 100 - perc_cdb - perc_lci
-    col_p3.metric("Reserva de Emergência", f"{perc_caixa}%", help="Calculado automaticamente pelo sistema.")
+    col_p3.metric("Reserva de Emergência", f"{perc_caixa}%", help="Calculado automaticamente para fechar os 100%.")
     
+    # --- Montagem dos Dados e Gráfico ---
     dados_carteira = pd.DataFrame({
         "Investimento": ["Renda Fixa Geral", "LCI/LCA", "Reserva (Poupança)"],
         "Valor (R$)": [

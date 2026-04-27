@@ -8,19 +8,21 @@ st.set_page_config(page_title="InvestSim - Pro", layout="wide")
 
 esconder_menu = """
     <style>
-    /* Esconde APENAS o menu do topo à direita (Share, Github, etc) */
-    [data-testid="stToolbar"] {visibility: hidden !important;}
+    /* 1. Força o cabeçalho a ficar visível para a seta da barra lateral não sumir */
+    header {visibility: visible !important;}
+
+    /* 2. Esconde o menu do topo à direita (Share, Github, 3 pontinhos) nas versões novas e antigas */
+    [data-testid="stHeaderActionElements"] {display: none !important;}
+    [data-testid="stToolbar"] {display: none !important;}
     
-    /* Esconde a linha colorida no topo (opcional, deixa o visual mais limpo) */
-    [data-testid="stDecoration"] {visibility: hidden !important;}
+    /* 3. Esconde a linha colorida no topo */
+    [data-testid="stDecoration"] {display: none !important;}
     
-    /* Esconde o rodapé padrão */
-    footer {visibility: hidden !important;}
+    /* 4. Esconde o rodapé padrão */
+    footer {display: none !important;}
     
-    /* Esconde o botão vermelho de Deploy/Manage App no canto inferior */
+    /* 5. Esconde o botão vermelho de Deploy e a marca de água */
     [data-testid="stAppDeployButton"] {display: none !important;}
-    
-    /* Esconde o avatar do criador e a marca d'água 'Made with Streamlit' */
     [data-testid="viewerBadge"] {display: none !important;}
     .viewerBadge_container {display: none !important;}
     </style>

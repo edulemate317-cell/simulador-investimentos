@@ -8,16 +8,15 @@ st.set_page_config(page_title="InvestSim - Pro", layout="wide")
 
 esconder_menu = """
     <style>
-    /* 1. Esconde qualquer link (como o ícone do GitHub) dentro do cabeçalho */
-    header a {display: none !important;}
+    /* 1. A GUILHOTINA: Corta 80% do lado direito do cabeçalho. A setinha (na esquerda) sobrevive perfeitamente! */
+    header {
+        clip-path: inset(0 80% 0 0) !important;
+    }
     
-    /* 2. Esconde TODOS os botões do cabeçalho (Fork, 3 pontinhos), EXCETO a setinha */
-    header button:not([data-testid="collapsedControl"]) {display: none !important;}
+    /* 2. Remove a linha colorida no topo que ficaria cortada pela metade */
+    [data-testid="stDecoration"] {display: none !important;}
     
-    /* 3. Garantia extra contra as caixas padrão do menu */
-    [data-testid="stHeaderActionElements"] {display: none !important;}
-    
-    /* 4. Esconde o rodapé e a marca d'água inferior */
+    /* 3. Esconde o rodapé e a marca d'água inferior */
     footer {display: none !important;}
     [data-testid="stAppDeployButton"] {display: none !important;}
     [data-testid="viewerBadge"] {display: none !important;}

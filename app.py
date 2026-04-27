@@ -171,7 +171,7 @@ with aba_simulador:
     else: st.write("👈 Configure e clique em **Simular**.")
 
 with aba_carteira:
-    st.subheader("Planeie a sua Carteira Ideal")
+    st.subheader("Planeja a sua Carteira Ideal")
     pat_total = st.number_input("Patrimônio Total (R$)", value=50000.0, step=1000.0)
     c_p1, c_p2, c_p3 = st.columns(3)
     p_cdb = c_p1.slider("Renda Fixa", 0, 100, 50)

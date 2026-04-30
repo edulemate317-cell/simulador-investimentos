@@ -10,14 +10,9 @@ st.set_page_config(page_title="InvestSim - Pro", layout="wide")
 
 st.markdown("""
     <style>
-    header { clip-path: inset(0 80% 0 0) !important; }
-    [data-testid="stDecoration"] {display: none !important;}
-    footer {display: none !important;}
-    [data-testid="stAppDeployButton"] {display: none !important;}
-    [data-testid="viewerBadge"] {display: none !important;}
-    .viewerBadge_container {display: none !important;}
-    .header-anchor {display: none !important;}
-    h1 a, h2 a, h3 a, h4 a, h5 a, h6 a {display: none !important;}
+    /* Esconde apenas o rodapé e elementos desnecessários, mantendo o menu e a sidebar */
+    footer, #MainMenu {visibility: hidden;}
+    .stAppDeployButton {display: none;}
     </style>
     """, unsafe_allow_html=True)
 

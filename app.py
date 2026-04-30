@@ -29,17 +29,24 @@ def obter_taxas_atuais():
     try:
         url_selic = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json"
         url_ipca = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.13522/dados/ultimos/1?formato=json"
+        
         r_selic = requests.get(url_selic, timeout=5)
         r_ipca = requests.get(url_ipca, timeout=5)
         r_selic.raise_for_status()
         r_ipca.raise_for_status()
         
-        selic = float(r_selic.json()[0]['valor']) / 100
-        ipca = float(r_ipca.json()[0]['valor']) / 100
+        dados_selic = r_selic.json()
+        dados_ipca = r_ipca.json()
+        
+        if not dados_selic or not dados_ipca:
+            raise ValueError("Resposta vazia da API do Banco Central")
+        
+        selic = float(dados_selic[0]['valor']) / 100
+        ipca = float(dados_ipca[0]['valor']) / 100
         cdi = selic - 0.0010
-        return selic, cdi, ipca, False # False indica que não houve erro na API
-    except (requests.exceptions.RequestException, ValueError, KeyError): 
-        return 0.1050, 0.1040, 0.0450, True # True indica que usou fallback
+        return selic, cdi, ipca, False
+    except (requests.exceptions.RequestException, ValueError, KeyError, IndexError): 
+        return 0.1050, 0.1040, 0.0450, True
 
 def obter_aliquota_ir(meses):
     if meses < 6: return 0.225
@@ -96,7 +103,7 @@ st.title("🚀 InvestSim Pro: Inteligência Financeira")
 selic, cdi, ipca, erro_api = obter_taxas_atuais()
 
 if erro_api:
-    st.warning(f"⚠️ Não foi possível conectar ao Banco Central. Usando projeções padrão: Selic {selic*100:.2f}% | IPCA {ipca*100:.2f}%")
+    st.warning(f"⚠️ Instabilidade no Banco Central. Usando projeções padrão: Selic {selic*100:.2f}% | IPCA {ipca*100:.2f}%")
 else:
     st.info(f"**Taxas Atuais:** Selic: {selic*100:.2f}% a.a. | CDI: {cdi*100:.2f}% a.a. | IPCA (12m): {ipca*100:.2f}%")
 
@@ -170,7 +177,7 @@ with aba_comp:
                 else: 
                     st.warning(f"🔴 **IR Retido:** R$ {r['imp']:,.2f} ({r['ali']*100:.1f}%)")
         
-        st.subheader("Evolução do Poder de Compra (Ganho Real)")
+        st.subheader("Evolução do Poder de Compra Real")
         c_data = pd.DataFrame({"Mês": res_comp[0]["df"]["Mês"]}).set_index("Mês")
         c_data["Seu Dinheiro"] = res_comp[0]["df"]["Total Investido (R$)"]
         for r in res_comp: 
@@ -206,7 +213,7 @@ with aba_conj:
         st.markdown(f"**Investimento {n}**")
         c1, c2, c3, c4 = st.columns([1.5, 1, 1, 1])
         t = c1.selectbox("Tipo", ["CDB", "LCI/LCA", "Poupança", "Tesouro Selic", "Tesouro Prefixado", "Tesouro IPCA+"], key=f"tj{n}")
-        ini = c2.number_input("Incial (R$)", min_value=0.0, step=1000.0, value=5000.0, key=f"ij{n}")
+        ini = c2.number_input("Inicial (R$)", min_value=0.0, step=1000.0, value=5000.0, key=f"ij{n}")
         apo = c3.number_input("Aporte (R$)", min_value=0.0, step=100.0, value=200.0, key=f"aj{n}")
         
         tx = 0.0

@@ -10,11 +10,15 @@ st.set_page_config(page_title="InvestSim - Pro", layout="wide")
 
 st.markdown("""
     <style>
-    /* Limpeza básica e 100% segura (mantém o cabeçalho original da plataforma) */
+    /* 1. Esconde APENAS os botões do canto direito (Share, GitHub, 3 pontinhos) */
+    [data-testid="stActionElements"] { display: none !important; }
+    [data-testid="stToolbar"] { display: none !important; }
+    
+    /* 2. Limpeza padrão e segura (mantém a setinha do menu intacta) */
     [data-testid="stDecoration"] { display: none !important; }
     footer { display: none !important; }
     
-    /* Remove os links de âncora invisíveis nos títulos */
+    /* 3. Remove os links de âncora invisíveis nos títulos */
     .header-anchor { display: none !important; }
     h1 a, h2 a, h3 a, h4 a, h5 a, h6 a { display: none !important; }
     </style>

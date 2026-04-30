@@ -10,17 +10,14 @@ st.set_page_config(page_title="InvestSim - Pro", layout="wide")
 
 st.markdown("""
     <style>
-    /* 1. Esconde APENAS os botões do canto direito (Share, GitHub, 3 pontinhos) */
-    [data-testid="stActionElements"] { display: none !important; }
-    [data-testid="stToolbar"] { display: none !important; }
-    
-    /* 2. Limpeza padrão e segura (mantém a setinha do menu intacta) */
-    [data-testid="stDecoration"] { display: none !important; }
-    footer { display: none !important; }
-    
-    /* 3. Remove os links de âncora invisíveis nos títulos */
-    .header-anchor { display: none !important; }
-    h1 a, h2 a, h3 a, h4 a, h5 a, h6 a { display: none !important; }
+    header { clip-path: inset(0 80% 0 0) !important; }
+    [data-testid="stDecoration"] {display: none !important;}
+    footer {display: none !important;}
+    [data-testid="stAppDeployButton"] {display: none !important;}
+    [data-testid="viewerBadge"] {display: none !important;}
+    .viewerBadge_container {display: none !important;}
+    .header-anchor {display: none !important;}
+    h1 a, h2 a, h3 a, h4 a, h5 a, h6 a {display: none !important;}
     </style>
     """, unsafe_allow_html=True)
 

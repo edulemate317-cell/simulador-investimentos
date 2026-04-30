@@ -94,7 +94,9 @@ with aba_comp:
         tx = 0.0; isen = False
         if t == "Poupança": tx = (1.005**12-1) if selic > 0.085 else (selic*0.7); isen = True
         elif t in ["CDB", "LCI/LCA"]:
-            p = st.sidebar.number_input("% do CDI", 100.0, step=1.0, key=f"pc{n}"); tx = cdi*(p/100); isen = (t == "LCI/LCA")
+            p = st.sidebar.number_input("% do CDI", min_value=0.0, value=100.0, step=1.0, key=f"pc{n}")
+            tx = cdi*(p/100)
+            isen = (t == "LCI/LCA")
         elif t == "Tesouro Selic": tx = selic
         elif t == "Tesouro Prefixado": p = st.sidebar.number_input("Taxa % a.a.", 10.5, step=0.1, key=f"pre_c{n}"); tx = p/100
         elif t == "Tesouro IPCA+": p = st.sidebar.number_input("Taxa Fixa %", 5.5, step=0.1, key=f"ipca_c{n}"); tx = ((1+ipca)*(1+(p/100)))-1

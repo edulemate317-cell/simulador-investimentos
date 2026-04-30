@@ -10,7 +10,9 @@ st.set_page_config(page_title="InvestSim - Pro", layout="wide")
 
 st.markdown("""
     <style>
-    header { clip-path: inset(0 80% 0 0) !important; }
+    /* Cabeçalho transparente para evitar o retângulo preto */
+    header { background-color: transparent !important; }
+    [data-testid="stToolbar"] { display: none !important; }
     [data-testid="stDecoration"] {display: none !important;}
     footer {display: none !important;}
     [data-testid="stAppDeployButton"] {display: none !important;}
@@ -237,7 +239,9 @@ with aba_conj:
             total_inv += inv
             total_imp += imp
             
-        df_sum = all_dfs[0][["Mês", "Total Investido (R$)"]].copy()
+        # Correção da tabela de soma total
+        df_sum = all_dfs[0][["Mês"]].copy()
+        df_sum["Total Investido (R$)"] = sum(d["Total Investido (R$)"] for d in all_dfs)
         df_sum["Patrimônio Líquido (R$)"] = sum(d["Saldo Líquido (R$)"] for d in all_dfs)
         
         # --- LÓGICA DO RADAR DE METAS ---
@@ -254,11 +258,18 @@ with aba_conj:
         c2.metric("Patrimônio Líquido Final", f"R$ {total_final:,.2f}", f"Lucro: R$ {total_final-total_inv:,.2f}")
         c3.metric("Imposto de Renda Total", f"R$ {total_imp:,.2f}")
         
+        # Correção do gráfico da meta com Plotly
         st.subheader("Evolução do Patrimônio Somado")
-        chart_data_conj = df_sum.set_index("Mês")
+        fig_conj = px.line(df_sum, x="Mês", y=["Patrimônio Líquido (R$)", "Total Investido (R$)"], 
+                           color_discrete_map={"Patrimônio Líquido (R$)": "#3b82f6", "Total Investido (R$)": "#f59e0b"})
+        
         if meta_alvo > 0:
-            chart_data_conj["Sua Meta"] = meta_alvo
-        st.area_chart(chart_data_conj)
+            fig_conj.add_hline(y=meta_alvo, line_dash="dash", line_color="#10b981", 
+                               annotation_text="🎯 Sua Meta", annotation_position="top left",
+                               annotation_font=dict(color="#10b981", size=14))
+            
+        fig_conj.update_layout(xaxis_title="Meses", yaxis_title="Valor (R$)", legend_title_text="", hovermode="x unified")
+        st.plotly_chart(fig_conj)
 
         # --- MELHORIA 2: EXTRATO MENSAL (ABA 2) ---
         with st.expander("📄 Ver Extrato Detalhado da Carteira"):

@@ -237,7 +237,8 @@ with aba_conj:
             total_inv += inv
             total_imp += imp
             
-        df_sum = all_dfs[0][["Mês", "Total Investido (R$)"]].copy()
+        df_sum = all_dfs[0][["Mês"]].copy()
+        df_sum["Total Investido (R$)"] = sum(d["Total Investido (R$)"] for d in all_dfs)
         df_sum["Patrimônio Líquido (R$)"] = sum(d["Saldo Líquido (R$)"] for d in all_dfs)
         
         # --- LÓGICA DO RADAR DE METAS ---

@@ -10,20 +10,12 @@ st.set_page_config(page_title="InvestSim - Pro", layout="wide")
 
 st.markdown("""
     <style>
-    /* 1. Torna o cabeçalho transparente em vez de o cortar (Fim do retângulo preto!) */
-    header { background-color: transparent !important; }
-    
-    /* 2. Esconde o menu de opções flutuante no topo direito */
-    [data-testid="stToolbar"] { display: none !important; }
-    
-    /* 3. Limpeza das marcas d'água e decorações */
+    header { clip-path: inset(0 80% 0 0) !important; }
     [data-testid="stDecoration"] {display: none !important;}
     footer {display: none !important;}
     [data-testid="stAppDeployButton"] {display: none !important;}
     [data-testid="viewerBadge"] {display: none !important;}
     .viewerBadge_container {display: none !important;}
-    
-    /* 4. Exterminador de links de título */
     .header-anchor {display: none !important;}
     h1 a, h2 a, h3 a, h4 a, h5 a, h6 a {display: none !important;}
     </style>

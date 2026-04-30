@@ -61,9 +61,9 @@ def simular_evolucao(capital_inicial, aporte_mensal, taxa_anual, ipca_anual, mes
         
         historico.append({
             "Mês": mes,
-            "Investido": round(total_investido, 2),
-            "Líquido": round(saldo_atual - (lucro_parcial * aliq), 2),
-            "Real": round(saldo_real - (lucro_parcial * aliq), 2)
+            "Total Investido (R$)": round(total_investido, 2),
+            "Poder de Compra Real (R$)": round(saldo_real - (lucro_parcial * aliq), 2),
+            "Saldo Líquido (R$)": round(saldo_atual - (lucro_parcial * aliq), 2)
         })
     
     lucro_final = saldo_atual - total_investido
@@ -97,6 +97,7 @@ with aba_comp:
         t = st.sidebar.selectbox("Tipo", ["CDB", "LCI/LCA", "Poupança", "Tesouro Selic", "Tesouro Prefixado", "Tesouro IPCA+"], key=f"tc{n}")
         tx = 0.0
         isen = False
+        perc = 0.0
         
         if t == "Poupança": 
             tx = (1.005**12-1) if selic > 0.085 else (selic*0.7)
@@ -105,6 +106,7 @@ with aba_comp:
             p = st.sidebar.number_input("% do CDI", min_value=0.0, value=100.0, step=1.0, key=f"pc{n}")
             tx = cdi*(p/100)
             isen = (t == "LCI/LCA")
+            perc = p
         elif t == "Tesouro Selic": 
             tx = selic - 0.002
         elif t == "Tesouro Prefixado": 
@@ -114,7 +116,7 @@ with aba_comp:
             p = st.sidebar.number_input("Taxa Fixa %", min_value=0.0, value=5.5, step=0.1, key=f"ipca_c{n}")
             tx = (((1+ipca)*(1+(p/100)))-1) - 0.002
             
-        return {"nome": f"{t} {n}", "taxa": tx, "isento": isen}
+        return {"nome": f"{t} {n}", "tipo": t, "taxa": tx, "isento": isen, "perc": perc}
 
     configs_comp = [input_ativo_comp(i+1) for i in range(st.session_state["num_ativos_comp"])]
     
@@ -131,15 +133,22 @@ with aba_comp:
         res_comp = []
         for c in configs_comp:
             df, tot, liq, imp, ali = simular_evolucao(c_ini, c_apo, c["taxa"], ipca, c_mes, c["isento"])
-            res_comp.append({"nome": c["nome"], "df": df, "total": tot, "liq": liq, "imp": imp, "ali": ali})
+            res_comp.append({"nome": c["nome"], "tipo": c["tipo"], "perc": c["perc"], "df": df, "total": tot, "liq": liq, "imp": imp, "ali": ali})
         
         st.success(f"**Total Investido (Aportes):** R$ {res_comp[0]['total']:,.2f}")
         cols = st.columns(len(res_comp))
+        
         for i, r in enumerate(res_comp):
             with cols[i]:
                 st.subheader(r["nome"])
-                g_real = r['df']['Real'].iloc[-1] - r['total']
+                g_real = r['df']['Poder de Compra Real (R$)'].iloc[-1] - r['total']
                 st.metric("Resgate Líquido", f"R$ {r['liq']:,.2f}", f"Ganho Real: R$ {g_real:,.2f}")
+                
+                # --- MELHORIA 1: TAXA EQUIVALENTE ---
+                if r["tipo"] == "LCI/LCA":
+                    equiv_cdb = r["perc"] / (1 - obter_aliquota_ir(c_mes))
+                    st.caption(f"💡 Equivale a um CDB de **{equiv_cdb:.1f}%**")
+                
                 if r['ali'] == 0: 
                     st.info("🟢 **Isento de IR**")
                 else: 
@@ -147,10 +156,17 @@ with aba_comp:
         
         st.subheader("Evolução do Poder de Compra (Ganho Real)")
         c_data = pd.DataFrame({"Mês": res_comp[0]["df"]["Mês"]}).set_index("Mês")
-        c_data["Seu Dinheiro"] = res_comp[0]["df"]["Investido"]
+        c_data["Seu Dinheiro"] = res_comp[0]["df"]["Total Investido (R$)"]
         for r in res_comp: 
-            c_data[r["nome"]] = r["df"]["Real"]
+            c_data[r["nome"]] = r["df"]["Poder de Compra Real (R$)"]
         st.line_chart(c_data)
+        
+        # --- MELHORIA 2: EXTRATO MENSAL (ABA 1) ---
+        with st.expander("📄 Ver Extrato Detalhado Mês a Mês"):
+            extrato_comp = pd.DataFrame({"Mês": res_comp[0]["df"]["Mês"]}).set_index("Mês")
+            for r in res_comp:
+                extrato_comp[f"{r['nome']} (Líquido)"] = r["df"]["Saldo Líquido (R$)"]
+            st.dataframe(extrato_comp, use_container_width=True)
         
         st.divider()
         csv_comp = c_data.reset_index().to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
@@ -163,7 +179,10 @@ with aba_conj:
     st.subheader("🏗️ Simulador de Rendimento Conjunto")
     st.write("Aqui você define valores diferentes para cada investimento e vê o resultado somado do seu patrimônio.")
     
-    p_meses = st.slider("Prazo Global (Meses)", 1, 120, 24, key="mes_conj")
+    c_p1, c_p2 = st.columns([2, 1])
+    p_meses = c_p1.slider("Prazo Global (Meses)", 1, 120, 24, key="mes_conj")
+    # --- MELHORIA 3: META FINANCEIRA ---
+    meta_alvo = c_p2.number_input("🎯 Meta Financeira Opcional (R$)", min_value=0.0, value=0.0, step=10000.0, help="Deixe 0 se não quiser usar.")
     st.divider()
     
     def row_ativo_conj(n):
@@ -218,9 +237,17 @@ with aba_conj:
             total_inv += inv
             total_imp += imp
             
-        df_sum = all_dfs[0][["Mês"]].copy()
-        df_sum["Total Líquido"] = sum(d["Líquido"] for d in all_dfs)
-        df_sum["Total Investido"] = sum(d["Investido"] for d in all_dfs)
+        df_sum = all_dfs[0][["Mês", "Total Investido (R$)"]].copy()
+        df_sum["Patrimônio Líquido (R$)"] = sum(d["Saldo Líquido (R$)"] for d in all_dfs)
+        
+        # --- LÓGICA DO RADAR DE METAS ---
+        if meta_alvo > 0:
+            atingiu = df_sum[df_sum["Patrimônio Líquido (R$)"] >= meta_alvo]
+            if not atingiu.empty:
+                mes_meta = atingiu.iloc[0]["Mês"]
+                st.success(f"🎯 **Meta Atingida!** Você alcançará R$ {meta_alvo:,.2f} no **Mês {mes_meta}** (aproximadamente {mes_meta/12:.1f} anos).")
+            else:
+                st.warning(f"⏳ Com esses aportes e prazos, você não alcançará a meta de R$ {meta_alvo:,.2f} dentro dos {p_meses} meses.")
         
         c1, c2, c3 = st.columns(3)
         c1.metric("Total Investido (Do seu bolso)", f"R$ {total_inv:,.2f}")
@@ -228,7 +255,14 @@ with aba_conj:
         c3.metric("Imposto de Renda Total", f"R$ {total_imp:,.2f}")
         
         st.subheader("Evolução do Patrimônio Somado")
-        st.area_chart(df_sum.set_index("Mês"))
+        chart_data_conj = df_sum.set_index("Mês")
+        if meta_alvo > 0:
+            chart_data_conj["Sua Meta"] = meta_alvo
+        st.area_chart(chart_data_conj)
+
+        # --- MELHORIA 2: EXTRATO MENSAL (ABA 2) ---
+        with st.expander("📄 Ver Extrato Detalhado da Carteira"):
+            st.dataframe(df_sum.set_index("Mês"), use_container_width=True)
 
         csv_conj = df_sum.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
         st.download_button("📥 Baixar Dados da Carteira (Excel)", csv_conj, "carteira_conjunta.csv", "text/csv", width="stretch")

@@ -92,7 +92,7 @@ with aba_comp:
     c_apo = st.sidebar.number_input("Aporte Mensal (R$)", value=500.0, step=100.0, key="apo_c")
     c_mes = st.sidebar.slider("Prazo (Meses)", 1, 120, 24, key="mes_c")
 
-   def input_ativo_comp(n):
+    def input_ativo_comp(n):
         st.sidebar.subheader(f"Ativo {n}")
         t = st.sidebar.selectbox("Tipo", ["CDB", "LCI/LCA", "Poupança", "Tesouro Selic", "Tesouro Prefixado", "Tesouro IPCA+"], key=f"tc{n}")
         tx = 0.0
@@ -106,13 +106,13 @@ with aba_comp:
             tx = cdi*(p/100)
             isen = (t == "LCI/LCA")
         elif t == "Tesouro Selic": 
-            tx = selic - 0.002  # Desconto de 0,20% a.a. da B3
+            tx = selic - 0.002
         elif t == "Tesouro Prefixado": 
             p = st.sidebar.number_input("Taxa % a.a.", min_value=0.0, value=10.5, step=0.1, key=f"pre_c{n}")
-            tx = (p/100) - 0.002  # Desconto de 0,20% a.a. da B3
+            tx = (p/100) - 0.002
         elif t == "Tesouro IPCA+": 
             p = st.sidebar.number_input("Taxa Fixa %", min_value=0.0, value=5.5, step=0.1, key=f"ipca_c{n}")
-            tx = (((1+ipca)*(1+(p/100)))-1) - 0.002  # Desconto de 0,20% a.a. da B3
+            tx = (((1+ipca)*(1+(p/100)))-1) - 0.002
             
         return {"nome": f"{t} {n}", "taxa": tx, "isento": isen}
 
@@ -184,14 +184,14 @@ with aba_conj:
             tx = cdi*(p/100)
             isen = (t == "LCI/LCA")
         elif t == "Tesouro Selic": 
-            tx = selic - 0.002  # Desconto de 0,20% a.a. da B3
+            tx = selic - 0.002
             c4.caption(f"-0,2% B3")
         elif t == "Tesouro Prefixado": 
             p = c4.number_input("% a.a.", min_value=0.0, value=10.5, step=0.1, key=f"prej{n}")
-            tx = (p/100) - 0.002  # Desconto de 0,20% a.a. da B3
+            tx = (p/100) - 0.002
         elif t == "Tesouro IPCA+": 
             p = c4.number_input("Taxa Fixa", min_value=0.0, value=5.5, step=0.1, key=f"ipcaj{n}")
-            tx = (((1+ipca)*(1+(p/100)))-1) - 0.002  # Desconto de 0,20% a.a. da B3
+            tx = (((1+ipca)*(1+(p/100)))-1) - 0.002
             
         return {"ini": ini, "apo": apo, "taxa": tx, "isento": isen, "nome": f"{t}"}
 

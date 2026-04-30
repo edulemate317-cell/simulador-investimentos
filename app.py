@@ -24,16 +24,20 @@ st.markdown("""
 # ==========================================
 # 1. FUNÇÕES DE BACKEND
 # ==========================================
-@st.cache_data
+@st.cache_data(ttl=3600) # Atualiza a cada 1 hora
 def obter_taxas_atuais():
     try:
         url_selic = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json"
         url_ipca = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.13522/dados/ultimos/1?formato=json"
-        selic = float(requests.get(url_selic).json()[0]['valor']) / 100
-        ipca = float(requests.get(url_ipca).json()[0]['valor']) / 100
+        # Timeout de 5s para não travar o app se o BC cair
+        r_selic = requests.get(url_selic, timeout=5)
+        r_ipca = requests.get(url_ipca, timeout=5)
+        selic = float(r_selic.json()[0]['valor']) / 100
+        ipca = float(r_ipca.json()[0]['valor']) / 100
         cdi = selic - 0.0010
         return selic, cdi, ipca
-    except: 
+    except (requests.exceptions.RequestException, ValueError, KeyError): 
+        # Fallback seguro com exceções específicas
         return 0.1050, 0.1040, 0.0450 
 
 def obter_aliquota_ir(meses):
@@ -45,30 +49,42 @@ def obter_aliquota_ir(meses):
 def simular_evolucao(capital_inicial, aporte_mensal, taxa_anual, ipca_anual, meses, isento_ir):
     taxa_mensal = (1 + taxa_anual) ** (1 / 12) - 1
     inflacao_mensal = (1 + ipca_anual) ** (1 / 12) - 1
-    saldo_atual = capital_inicial
-    saldo_real = capital_inicial
+    saldo_bruto = capital_inicial
+    saldo_real_bruto = capital_inicial
     total_investido = capital_inicial
     historico = []
     
     for mes in range(0, meses + 1):
         if mes > 0:
-            saldo_atual = (saldo_atual * (1 + taxa_mensal)) + aporte_mensal
-            saldo_real = (saldo_real * (1 + taxa_mensal) / (1 + inflacao_mensal)) + (aporte_mensal / ((1 + inflacao_mensal) ** mes))
+            # Juros compostos rendem sobre o BRUTO (Sem descontar IR mensalmente)
+            saldo_bruto = (saldo_bruto * (1 + taxa_mensal)) + aporte_mensal
+            # Aporte deflacionado para cálculo real
+            saldo_real_bruto = (saldo_real_bruto * (1 + taxa_mensal) / (1 + inflacao_mensal)) + (aporte_mensal / ((1 + inflacao_mensal) ** mes))
             total_investido += aporte_mensal
             
-        lucro_parcial = saldo_atual - total_investido
+        # Simulação do IR apenas para visualização no mês (como se resgatasse naquele dia)
+        lucro_parcial = max(0, saldo_bruto - total_investido)
         aliq = 0 if isento_ir else obter_aliquota_ir(mes if mes > 0 else 1)
+        imposto_estimado = lucro_parcial * aliq
+        saldo_liquido = saldo_bruto - imposto_estimado
+        
+        # Poder de compra descontando o imposto ajustado
+        fator_inflacao = (1 + inflacao_mensal) ** mes if mes > 0 else 1
+        poder_compra_real = saldo_real_bruto - (imposto_estimado / fator_inflacao)
         
         historico.append({
             "Mês": mes,
             "Total Investido (R$)": round(total_investido, 2),
-            "Poder de Compra Real (R$)": round(saldo_real - (lucro_parcial * aliq), 2),
-            "Saldo Líquido (R$)": round(saldo_atual - (lucro_parcial * aliq), 2)
+            "Poder de Compra Real (R$)": round(poder_compra_real, 2),
+            "Saldo Líquido (R$)": round(saldo_liquido, 2)
         })
     
-    lucro_final = saldo_atual - total_investido
+    lucro_final = max(0, saldo_bruto - total_investido)
     aliq_f = 0 if isento_ir else obter_aliquota_ir(meses)
-    return pd.DataFrame(historico), total_investido, (saldo_atual - (lucro_final * aliq_f)), (lucro_final * aliq_f), aliq_f
+    imposto_final = lucro_final * aliq_f
+    saldo_liquido_final = saldo_bruto - imposto_final
+    
+    return pd.DataFrame(historico), total_investido, saldo_liquido_final, imposto_final, aliq_f
 
 # ==========================================
 # 2. GESTÃO DE ESTADO

@@ -98,8 +98,12 @@ with aba_comp:
             tx = cdi*(p/100)
             isen = (t == "LCI/LCA")
         elif t == "Tesouro Selic": tx = selic
-        elif t == "Tesouro Prefixado": p = st.sidebar.number_input("Taxa % a.a.", 10.5, step=0.1, key=f"pre_c{n}"); tx = p/100
-        elif t == "Tesouro IPCA+": p = st.sidebar.number_input("Taxa Fixa %", 5.5, step=0.1, key=f"ipca_c{n}"); tx = ((1+ipca)*(1+(p/100)))-1
+        elif t == "Tesouro Prefixado": 
+            p = st.sidebar.number_input("Taxa % a.a.", min_value=0.0, value=10.5, step=0.1, key=f"pre_c{n}")
+            tx = p/100
+        elif t == "Tesouro IPCA+": 
+            p = st.sidebar.number_input("Taxa Fixa %", min_value=0.0, value=5.5, step=0.1, key=f"ipca_c{n}")
+            tx = ((1+ipca)*(1+(p/100)))-1
         return {"nome": f"{t} {n}", "taxa": tx, "isento": isen}
 
     configs_comp = [input_ativo_comp(i+1) for i in range(st.session_state["num_ativos_comp"])]
@@ -146,8 +150,12 @@ with aba_conj:
             tx = cdi*(p/100)
             isen = (t == "LCI/LCA")
         elif t == "Tesouro Selic": tx = selic; c4.write(f"Selic")
-        elif t == "Tesouro Prefixado": p = c4.number_input("% a.a.", 10.5, step=0.1, key=f"prej{n}"); tx = p/100
-        elif t == "Tesouro IPCA+": p = c4.number_input("Taxa Fixa", 5.5, step=0.1, key=f"ipcaj{n}"); tx = ((1+ipca)*(1+(p/100)))-1
+       elif t == "Tesouro Prefixado": 
+            p = c4.number_input("% a.a.", min_value=0.0, value=10.5, step=0.1, key=f"prej{n}")
+            tx = p/100
+        elif t == "Tesouro IPCA+": 
+            p = c4.number_input("Taxa Fixa", min_value=0.0, value=5.5, step=0.1, key=f"ipcaj{n}")
+            tx = ((1+ipca)*(1+(p/100)))-1
         
         return {"ini": ini, "apo": apo, "taxa": tx, "isento": isen, "nome": f"{t}"}
 

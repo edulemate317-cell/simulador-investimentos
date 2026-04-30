@@ -256,10 +256,19 @@ with aba_conj:
         c3.metric("Imposto de Renda Total", f"R$ {total_imp:,.2f}")
         
         st.subheader("Evolução do Patrimônio Somado")
-        chart_data_conj = df_sum.set_index("Mês")
+        
+        # Gráfico profissional Plotly (resolve o bug do quadrado preto)
+        fig_conj = px.line(df_sum, x="Mês", y=["Patrimônio Líquido (R$)", "Total Investido (R$)"], 
+                           color_discrete_map={"Patrimônio Líquido (R$)": "#3b82f6", "Total Investido (R$)": "#f59e0b"})
+        
+        # Transforma a Meta numa linha de chegada horizontal perfeita
         if meta_alvo > 0:
-            chart_data_conj["Sua Meta"] = meta_alvo
-        st.area_chart(chart_data_conj)
+            fig_conj.add_hline(y=meta_alvo, line_dash="dash", line_color="#10b981", 
+                               annotation_text="🎯 Sua Meta", annotation_position="top left",
+                               annotation_font=dict(color="#10b981", size=14))
+            
+        fig_conj.update_layout(xaxis_title="Meses", yaxis_title="Valor (R$)", legend_title_text="", hovermode="x unified")
+        st.plotly_chart(fig_conj)
 
         # --- MELHORIA 2: EXTRATO MENSAL (ABA 2) ---
         with st.expander("📄 Ver Extrato Detalhado da Carteira"):

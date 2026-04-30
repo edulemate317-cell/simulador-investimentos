@@ -77,38 +77,16 @@ if "num_ativos_comp" not in st.session_state: st.session_state["num_ativos_comp"
 if "num_ativos_conj" not in st.session_state: st.session_state["num_ativos_conj"] = 1
 
 # ==========================================
-# 3. INTERFACE E CENÁRIOS ECONÔMICOS
+# 3. INTERFACE PRINCIPAL
 # ==========================================
 st.title("🚀 InvestSim Pro: Inteligência Financeira")
-
-selic_base, cdi_base, ipca_base = obter_taxas_atuais()
-
-# --- MELHORIA 1: TESTE DE ESTRESSE (BARRA LATERAL) ---
-st.sidebar.header("🌍 Teste de Estresse")
-cenario = st.sidebar.radio(
-    "Como a economia vai se comportar?", 
-    ["Cenário Atual (Padrão)", "Otimista (Juros sobem, Inflação cai)", "Pessimista (Juros caem, Inflação sobe)"]
-)
-
-if cenario == "Otimista (Juros sobem, Inflação cai)":
-    selic = selic_base + 0.02
-    ipca = max(0.03, ipca_base - 0.015)
-elif cenario == "Pessimista (Juros caem, Inflação sobe)":
-    selic = max(0.06, selic_base - 0.03)
-    ipca = ipca_base + 0.025
-else:
-    selic = selic_base
-    ipca = ipca_base
-
-cdi = selic - 0.0010
-
-st.info(f"**Cenário em Vigor:** Selic: {selic*100:.2f}% a.a. | CDI: {cdi*100:.2f}% a.a. | IPCA Projetado: {ipca*100:.2f}% a.a.")
+selic, cdi, ipca = obter_taxas_atuais()
+st.info(f"**Taxas Atuais:** Selic: {selic*100:.2f}% a.a. | CDI: {cdi*100:.2f}% a.a. | IPCA (12m): {ipca*100:.2f}%")
 
 aba_comp, aba_conj, aba_ideal = st.tabs(["📊 Comparador Direto", "🏗️ Construção de Patrimônio", "🥧 Alvos de Carteira"])
 
 # --- ABA 1: COMPARADOR ---
 with aba_comp:
-    st.sidebar.divider()
     st.sidebar.header("⚙️ Configurações do Comparador")
     c_ini = st.sidebar.number_input("Investimento Inicial (R$)", value=1000.0, step=100.0, key="ini_c")
     c_apo = st.sidebar.number_input("Aporte Mensal (R$)", value=500.0, step=100.0, key="apo_c")
@@ -166,6 +144,7 @@ with aba_comp:
                 g_real = r['df']['Poder de Compra Real (R$)'].iloc[-1] - r['total']
                 st.metric("Resgate Líquido", f"R$ {r['liq']:,.2f}", f"Ganho Real: R$ {g_real:,.2f}")
                 
+                # --- MELHORIA 1: TAXA EQUIVALENTE ---
                 if r["tipo"] == "LCI/LCA":
                     equiv_cdb = r["perc"] / (1 - obter_aliquota_ir(c_mes))
                     st.caption(f"💡 Equivale a um CDB de **{equiv_cdb:.1f}%**")
@@ -182,6 +161,7 @@ with aba_comp:
             c_data[r["nome"]] = r["df"]["Poder de Compra Real (R$)"]
         st.line_chart(c_data)
         
+        # --- MELHORIA 2: EXTRATO MENSAL (ABA 1) ---
         with st.expander("📄 Ver Extrato Detalhado Mês a Mês"):
             extrato_comp = pd.DataFrame({"Mês": res_comp[0]["df"]["Mês"]}).set_index("Mês")
             for r in res_comp:
@@ -201,7 +181,8 @@ with aba_conj:
     
     c_p1, c_p2 = st.columns([2, 1])
     p_meses = c_p1.slider("Prazo Global (Meses)", 1, 120, 24, key="mes_conj")
-    meta_alvo = c_p2.number_input("🎯 Meta Financeira Opcional (R$)", min_value=0.0, value=0.0, step=10000.0)
+    # --- MELHORIA 3: META FINANCEIRA ---
+    meta_alvo = c_p2.number_input("🎯 Meta Financeira Opcional (R$)", min_value=0.0, value=0.0, step=10000.0, help="Deixe 0 se não quiser usar.")
     st.divider()
     
     def row_ativo_conj(n):
@@ -256,26 +237,17 @@ with aba_conj:
             total_inv += inv
             total_imp += imp
             
-        df_sum = all_dfs[0][["Mês"]].copy()
-        df_sum["Total Investido (R$)"] = sum(d["Total Investido (R$)"] for d in all_dfs)
+        df_sum = all_dfs[0][["Mês", "Total Investido (R$)"]].copy()
         df_sum["Patrimônio Líquido (R$)"] = sum(d["Saldo Líquido (R$)"] for d in all_dfs)
         
-        # --- MELHORIA 2: RAIO-X DA CARTEIRA (TAXA PONDERADA) ---
-        taxa_media_ponderada = 0
-        for i, c in enumerate(configs_conj):
-            peso = all_dfs[i]["Total Investido (R$)"].iloc[-1] / total_inv if total_inv > 0 else 0
-            taxa_media_ponderada += c["taxa"] * peso
-            
-        equiv_media_cdi = (taxa_media_ponderada / cdi) * 100 if cdi > 0 else 0
-        st.success(f"📊 **Raio-X da Carteira:** A sua rentabilidade média é de **{taxa_media_ponderada*100:.2f}% ao ano** (Equivalente a **{equiv_media_cdi:.1f}% do CDI**).")
-        
+        # --- LÓGICA DO RADAR DE METAS ---
         if meta_alvo > 0:
             atingiu = df_sum[df_sum["Patrimônio Líquido (R$)"] >= meta_alvo]
             if not atingiu.empty:
                 mes_meta = atingiu.iloc[0]["Mês"]
-                st.info(f"🎯 **Meta Atingida!** Você alcançará R$ {meta_alvo:,.2f} no **Mês {mes_meta}**.")
+                st.success(f"🎯 **Meta Atingida!** Você alcançará R$ {meta_alvo:,.2f} no **Mês {mes_meta}** (aproximadamente {mes_meta/12:.1f} anos).")
             else:
-                st.warning(f"⏳ Com estes aportes, você não alcançará a meta de R$ {meta_alvo:,.2f} dentro dos {p_meses} meses.")
+                st.warning(f"⏳ Com esses aportes e prazos, você não alcançará a meta de R$ {meta_alvo:,.2f} dentro dos {p_meses} meses.")
         
         c1, c2, c3 = st.columns(3)
         c1.metric("Total Investido (Do seu bolso)", f"R$ {total_inv:,.2f}")
@@ -283,17 +255,12 @@ with aba_conj:
         c3.metric("Imposto de Renda Total", f"R$ {total_imp:,.2f}")
         
         st.subheader("Evolução do Patrimônio Somado")
-        fig_conj = px.line(df_sum, x="Mês", y=["Patrimônio Líquido (R$)", "Total Investido (R$)"], 
-                           color_discrete_map={"Patrimônio Líquido (R$)": "#3b82f6", "Total Investido (R$)": "#f59e0b"})
-        
+        chart_data_conj = df_sum.set_index("Mês")
         if meta_alvo > 0:
-            fig_conj.add_hline(y=meta_alvo, line_dash="dash", line_color="#10b981", 
-                               annotation_text="🎯 Sua Meta", annotation_position="top left",
-                               annotation_font=dict(color="#10b981", size=14))
-            
-        fig_conj.update_layout(xaxis_title="Meses", yaxis_title="Valor (R$)", legend_title_text="", hovermode="x unified")
-        st.plotly_chart(fig_conj, use_container_width=True)
+            chart_data_conj["Sua Meta"] = meta_alvo
+        st.area_chart(chart_data_conj)
 
+        # --- MELHORIA 2: EXTRATO MENSAL (ABA 2) ---
         with st.expander("📄 Ver Extrato Detalhado da Carteira"):
             st.dataframe(df_sum.set_index("Mês"), use_container_width=True)
 
@@ -322,4 +289,4 @@ with aba_ideal:
     })
     
     fig = px.pie(df_pie, values='Valor', names='Tipo', hole=0.4, color_discrete_sequence=['#3b82f6', '#10b981', '#f59e0b'])
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig)

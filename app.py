@@ -10,20 +10,19 @@ st.set_page_config(page_title="InvestSim - Pro", layout="wide")
 
 st.markdown("""
     <style>
-    /* 1. Fundo transparente para matar o retângulo preto */
-    header { background-color: transparent !important; }
+    /* 1. Deixa apenas o fundo do cabeçalho transparente (extermina o retângulo preto) */
+    [data-testid="stHeader"] { background-color: transparent !important; }
     
-    /* 2. Esconde o menu da direita (deploy, três pontinhos) */
-    [data-testid="stToolbar"] { visibility: hidden !important; }
+    /* 2. Esconde especificamente o menu do lado direito (Deploy, 3 pontinhos) */
+    [data-testid="stToolbar"] { display: none !important; }
     
-    /* 3. GARANTE que a setinha da esquerda (abrir/fechar menu) continue visível e clicável */
-    [data-testid="collapsedControl"] { visibility: visible !important; }
+    /* 3. Remove a linha colorida decorativa no topo */
+    [data-testid="stDecoration"] { display: none !important; }
     
-    /* 4. Limpeza padrão de marcas d'água */
-    [data-testid="stDecoration"] {display: none !important;}
-    footer {display: none !important;}
-    .header-anchor {display: none !important;}
-    h1 a, h2 a, h3 a, h4 a, h5 a, h6 a {display: none !important;}
+    /* 4. Limpeza padrão do rodapé e links de títulos */
+    footer { display: none !important; }
+    .header-anchor { display: none !important; }
+    h1 a, h2 a, h3 a, h4 a, h5 a, h6 a { display: none !important; }
     </style>
     """, unsafe_allow_html=True)
 

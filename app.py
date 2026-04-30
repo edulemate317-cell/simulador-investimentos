@@ -2,13 +2,13 @@ import streamlit as st
 import requests
 import pandas as pd
 import plotly.express as px
+from datetime import datetime
 
 # ==========================================
-# 1. CONFIGURAÇÕES E ESTILIZAÇÃO
+# CONFIGURAÇÃO DE INTERFACE E CSS
 # ==========================================
-st.set_page_config(page_title="InvestSim Pro", layout="wide")
+st.set_page_config(page_title="InvestSim Pro", layout="wide", initial_sidebar_state="expanded")
 
-# CSS para esconder elementos padrão do Streamlit e limpar o topo
 st.markdown("""
     <style>
     header { background-color: transparent !important; }
@@ -17,207 +17,249 @@ st.markdown("""
     footer {display: none !important;}
     [data-testid="stAppDeployButton"] {display: none !important;}
     [data-testid="viewerBadge"] {display: none !important;}
+    .viewerBadge_container {display: none !important;}
     .header-anchor {display: none !important;}
+    h1 a, h2 a, h3 a, h4 a, h5 a, h6 a {display: none !important;}
     </style>
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. MOTOR FINANCEIRO (BACKEND)
+# 1. BACKEND: TAXAS E CALCULADORA
 # ==========================================
 
 @st.cache_data(ttl=3600)
-def buscar_indicadores():
-    """Busca dados do Banco Central com fallback para erro de conexão."""
+def buscar_indicadores_mercado():
+    """Busca Selic e IPCA das APIs do Banco Central com Fallback seguro."""
     try:
-        s = requests.get("https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json", timeout=5).json()[0]['valor']
-        i = requests.get("https://api.bcb.gov.br/dados/serie/bcdata.sgs.13522/dados/ultimos/1?formato=json", timeout=5).json()[0]['valor']
-        selic, ipca = float(s)/100, float(i)/100
-    except:
-        selic, ipca = 0.1075, 0.0450
-    return selic, (selic - 0.001), ipca
-
-def calcular_taxa_anual(tipo, selic, cdi, ipca, extra=0.0):
-    """Calcula a taxa bruta anual baseada no tipo de ativo."""
-    if tipo == "Poupança":
-        return (1.005**12 - 1) if selic > 0.085 else (selic * 0.7), True
-    if tipo == "CDB":
-        return cdi * (extra / 100), False
-    if tipo == "LCI/LCA":
-        return cdi * (extra / 100), True
-    if tipo == "Tesouro Selic":
-        return selic - 0.002, False
-    if tipo == "Tesouro Prefixado":
-        return (extra / 100) - 0.002, False
-    if tipo == "Tesouro IPCA+":
-        return (((1 + ipca) * (1 + extra / 100)) - 1) - 0.002, False
-    return 0.0, False
-
-def simular(v_ini, v_apo, tx_a, ipca_a, meses, isento):
-    """Executa a projeção financeira mês a mês."""
-    tx_m = (1 + tx_a)**(1/12) - 1
-    inf_m = (1 + ipca_a)**(1/12) - 1
+        # Selic (SGS 432)
+        r_selic = requests.get("https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json", timeout=5)
+        selic = float(r_selic.json()[0]['valor']) / 100
+        # IPCA (SGS 13522)
+        r_ipca = requests.get("https://api.bcb.gov.br/dados/serie/bcdata.sgs.13522/dados/ultimos/1?formato=json", timeout=5)
+        ipca = float(r_ipca.json()[0]['valor']) / 100
+    except (requests.exceptions.RequestException, ValueError, KeyError):
+        # Fallback caso a API do BC falhe ou demore
+        selic, ipca = 0.1075, 0.0450 
     
-    bruto, real, investido = v_ini, v_ini, v_ini
+    return selic, (selic - 0.0010), ipca
+
+def calcular_ir_renda_fixa(meses):
+    """Retorna a alíquota de IR baseada na tabela regressiva brasileira."""
+    if meses < 6: return 0.225
+    if meses < 12: return 0.200
+    if meses < 24: return 0.175
+    return 0.150
+
+def definir_logica_ativo(tipo, selic, cdi, ipca, param_adicional=0.0):
+    """Centraliza a inteligência de taxas de todos os produtos de Renda Fixa."""
+    taxa_anual = 0.0
+    isento = False
+    
+    if tipo == "Poupança":
+        taxa_anual = (1.005**12 - 1) if selic > 0.085 else (selic * 0.7)
+        isento = True
+    elif tipo == "CDB":
+        taxa_anual = cdi * (param_adicional / 100)
+        isento = False
+    elif tipo == "LCI/LCA":
+        taxa_anual = cdi * (param_adicional / 100)
+        isento = True
+    elif tipo == "Tesouro Selic":
+        taxa_anual = selic - 0.0020 # Taxa B3
+        isento = False
+    elif tipo == "Tesouro Prefixado":
+        taxa_anual = (param_adicional / 100) - 0.0020 # Taxa B3
+        isento = False
+    elif tipo == "Tesouro IPCA+":
+        taxa_anual = (((1 + ipca) * (1 + (param_adicional / 100))) - 1) - 0.0020
+        isento = False
+        
+    return taxa_anual, isento
+
+def executar_simulacao(capital_ini, aporte_mes, taxa_anual, ipca_anual, meses, isento):
+    """Simulador core com IR aplicado apenas no resgate final (Precisão Financeira)."""
+    t_mensal = (1 + taxa_anual)**(1/12) - 1
+    i_mensal = (1 + ipca_anual)**(1/12) - 1
+    
+    saldo_bruto = capital_ini
+    saldo_real = capital_ini
+    investido_total = capital_ini
     dados = []
     
-    # Tabela IR Regressiva
-    def get_ir(m):
-        if isento: return 0.0
-        if m < 6: return 0.225
-        if m < 12: return 0.200
-        if m < 24: return 0.175
-        return 0.150
-
     for m in range(meses + 1):
         if m > 0:
-            bruto = (bruto * (1 + tx_m)) + v_apo
-            investido += v_apo
-            real = (real * (1 + tx_m) / (1 + inf_m)) + (v_apo / (1 + inf_m)**m)
-        
-        lucro = max(0, bruto - investido)
-        ir_atual = lucro * get_ir(m)
-        liquido = bruto - ir_atual
-        liquido_real = real - (ir_atual / (1 + inf_m)**m)
+            saldo_bruto = (saldo_bruto * (1 + t_mensal)) + aporte_mes
+            investido_total += aporte_mes
+            # Saldo Real (ajustado pela inflação no tempo)
+            saldo_real = (saldo_real * (1 + t_mensal) / (1 + i_mensal)) + (aporte_mes / (1 + i_mensal)**m)
+
+        lucro_bruto = max(0, saldo_bruto - investido_total)
+        aliq_ir = 0 if isento else calcular_ir_renda_fixa(m if m > 0 else 1)
+        imposto_estimado = lucro_bruto * aliq_ir
+        saldo_liquido = saldo_bruto - imposto_estimado
         
         dados.append({
             "Mês": m,
-            "Investido": investido,
-            "Saldo Bruto": bruto,
-            "Saldo Líquido": liquido,
-            "Líquido Real": liquido_real
+            "Total Investido": round(investido_total, 2),
+            "Saldo Bruto": round(saldo_bruto, 2),
+            "IR Estimado": round(imposto_estimado, 2),
+            "Saldo Líquido": round(saldo_liquido, 2),
+            "Poder de Compra (Real)": round(saldo_real - (imposto_estimado / (1 + i_mensal)**m), 2)
         })
+        
     return pd.DataFrame(dados)
 
 # ==========================================
-# 3. INTERFACE (FRONTEND)
+# 2. INTERFACE E ESTADO
 # ==========================================
-selic_h, cdi_h, ipca_h = buscar_indicadores()
+selic_hoje, cdi_hoje, ipca_hoje = buscar_indicadores_mercado()
 
-# SIDEBAR: Apenas Configurações Globais
-with st.sidebar:
-    st.title("🌍 Global")
-    cenario = st.selectbox("Cenário Econômico", ["Atual", "Otimista (Juros ↑)", "Pessimista (Juros ↓)"])
-    if cenario == "Otimista (Juros ↑)":
-        s_s, i_s = selic_h + 0.02, max(0.02, ipca_h - 0.01)
-    elif cenario == "Pessimista (Juros ↓)":
-        s_s, i_s = max(0.05, selic_h - 0.04), ipca_h + 0.03
-    else:
-        s_s, i_s = selic_h, ipca_h
-    c_s = s_s - 0.001
-    st.info(f"Selic: {s_s*100:.2f}% | IPCA: {i_s*100:.2f}%")
+if "n_comp" not in st.session_state: st.session_state.n_comp = 1
+if "n_conj" not in st.session_state: st.session_state.n_conj = 1
 
 st.title("🚀 InvestSim Pro")
-tab1, tab2, tab3 = st.tabs(["📊 Comparador", "🏗️ Carteira Conjunta", "🥧 Alvos"])
+st.caption("Simulador de Renda Fixa com Precisão Institucional e Teste de Estresse.")
 
-# --- ABA 1: COMPARADOR ---
-with tab1:
-    col_par1, col_par2, col_par3 = st.columns(3)
-    c_ini = col_par1.number_input("Investimento Inicial", 0.0, 1000000.0, 10000.0, step=1000.0, key="c1")
-    c_apo = col_par2.number_input("Aporte Mensal", 0.0, 100000.0, 500.0, step=100.0, key="c2")
-    c_mes = col_par3.slider("Prazo (Meses)", 1, 360, 24, key="c3")
+# --- SIDEBAR: CENÁRIOS ---
+with st.sidebar:
+    st.header("🌍 Cenário Econômico")
+    cenario = st.radio("Ambiente", ["Atual", "Otimista (Juros ↑)", "Pessimista (Juros ↓)"])
     
-    st.divider()
+    if cenario == "Otimista (Juros ↑)":
+        s_sim, i_sim = selic_hoje + 0.02, max(0.03, ipca_hoje - 0.01)
+    elif cenario == "Pessimista (Juros ↓)":
+        s_sim, i_sim = max(0.06, selic_hoje - 0.03), ipca_hoje + 0.03
+    else:
+        s_sim, i_sim = selic_hoje, ipca_hoje
     
-    if "n_comp" not in st.session_state: st.session_state.n_comp = 2
-    
-    # Grid de Ativos
-    comp_ativos = []
-    cols_ativos = st.columns(st.session_state.n_comp)
-    
-    for i in range(st.session_state.n_comp):
-        with cols_ativos[i]:
+    c_sim = s_sim - 0.001
+    st.info(f"Selic: {s_sim*100:.2f}% | IPCA: {i_sim*100:.2f}%")
+
+aba1, aba2, aba3 = st.tabs(["📊 Comparador", "🏗️ Carteira Conjunta", "🥧 Alvos"])
+
+# ==========================================
+# ABA 1: COMPARADOR
+# ==========================================
+with aba1:
+    with st.sidebar:
+        st.divider()
+        st.header("⚙️ Config. Comparador")
+        ini_c = st.number_input("Investimento Inicial", 0.0, value=10000.0, step=1000.0, key="c_ini")
+        apo_c = st.number_input("Aporte Mensal", 0.0, value=500.0, step=100.0, key="c_apo")
+        mes_c = st.slider("Prazo (Meses)", 1, 120, 24, key="c_mes")
+        
+        ativos_c = []
+        for i in range(st.session_state.n_comp):
             st.subheader(f"Ativo {i+1}")
-            t = st.selectbox("Tipo", ["CDB", "LCI/LCA", "Tesouro Selic", "Tesouro Prefixado", "Tesouro IPCA+", "Poupança"], key=f"t1_{i}")
-            ext = 0.0
-            if t in ["CDB", "LCI/LCA"]: ext = st.number_input("% do CDI", 0.0, 500.0, 100.0, key=f"e1_{i}")
-            elif t == "Tesouro Prefixado": ext = st.number_input("Taxa % a.a.", 0.0, 50.0, 11.0, key=f"e1_{i}")
-            elif t == "Tesouro IPCA+": ext = st.number_input("Taxa Fixa %", 0.0, 20.0, 6.0, key=f"e1_{i}")
+            tipo = st.selectbox("Tipo", ["CDB", "LCI/LCA", "Tesouro Selic", "Tesouro Prefixado", "Tesouro IPCA+", "Poupança"], key=f"t_c{i}")
             
-            tx, isen = calcular_taxa_anual(t, s_s, c_s, i_s, ext)
-            comp_ativos.append({"nome": f"{t} #{i+1}", "taxa": tx, "isento": isen, "tipo": t, "extra": ext})
+            p_adicional = 0.0
+            if tipo in ["CDB", "LCI/LCA"]:
+                p_adicional = st.number_input("% do CDI", 0.0, value=100.0, key=f"p_c{i}")
+            elif tipo == "Tesouro Prefixado":
+                p_adicional = st.number_input("Taxa % a.a.", 0.0, value=11.5, key=f"p_c{i}")
+            elif tipo == "Tesouro IPCA+":
+                p_adicional = st.number_input("Taxa Fixa %", 0.0, value=6.0, key=f"p_c{i}")
+                
+            taxa, isento = definir_logica_ativo(tipo, s_sim, c_sim, i_sim, p_adicional)
+            ativos_c.append({"nome": f"{tipo} ({i+1})", "tipo": tipo, "taxa": taxa, "isento": isento, "param": p_adicional})
 
-    c_b1, c_b2, _ = st.columns([1,1,4])
-    if c_b1.button("➕", key="b1_add"): st.session_state.n_comp += 1; st.rerun()
-    if c_b2.button("➖", key="b1_rem") and st.session_state.n_comp > 1: st.session_state.n_comp -= 1; st.rerun()
+        col1, col2 = st.columns(2)
+        if col1.button("➕ Ativo", width="stretch"): st.session_state.n_comp += 1; st.rerun()
+        if col2.button("➖ Ativo", width="stretch") and st.session_state.n_comp > 1: st.session_state.n_comp -= 1; st.rerun()
 
-    if st.button("🚀 Simular Comparação", type="primary", width="stretch"):
-        results = []
-        for a in comp_ativos:
-            df = simular(c_ini, c_apo, a["taxa"], i_s, c_mes, a["isento"])
-            results.append({"nome": a["nome"], "df": df})
+    if st.sidebar.button("🚀 Simular Agora", type="primary", width="stretch"):
+        res_c = []
+        for a in ativos_c:
+            df = executar_simulacao(ini_c, apo_c, a["taxa"], i_sim, mes_c, a["isento"])
+            res_c.append({"nome": a["nome"], "tipo": a["tipo"], "df": df, "param": a["param"]})
+        
+        # Cards de Resultado
+        cols = st.columns(len(res_c))
+        for i, r in enumerate(res_c):
+            with cols[i]:
+                final = r["df"].iloc[-1]
+                st.metric(r["nome"], f"R$ {final['Saldo Líquido']:,.2f}")
+                if r["tipo"] == "LCI/LCA":
+                    equiv = r["param"] / (1 - calcular_ir_renda_fixa(mes_c))
+                    st.caption(f"💡 Equivale a CDB {equiv:.1f}% CDI")
         
         # Gráfico
-        fig_c = px.line(title="Evolução do Saldo Líquido")
-        for r in results:
-            fig_c.add_scatter(x=r["df"]["Mês"], y=r["df"]["Saldo Líquido"], name=r["nome"])
-        st.plotly_chart(fig_c, use_container_width=True)
+        plot_df = pd.DataFrame({"Mês": res_c[0]["df"]["Mês"]})
+        for r in res_c: plot_df[r["nome"]] = r["df"]["Saldo Líquido"]
+        st.plotly_chart(px.line(plot_df, x="Mês", y=plot_df.columns[1:], title="Evolução do Saldo Líquido"), use_container_width=True)
+        
+        with st.expander("📄 Extrato Mês a Mês"):
+            st.dataframe(res_c[0]["df"], use_container_width=True)
+    else:
+        st.write("Aguardando simulação...")
 
-# --- ABA 2: CARTEIRA CONJUNTA ---
-with tab2:
-    st.header("🏗️ Construção de Patrimônio")
-    col_j1, col_j2 = st.columns([2,1])
-    j_mes = col_j1.slider("Prazo Global (Meses)", 1, 480, 60)
-    j_meta = col_j2.number_input("Meta Alvo (R$)", 0.0, value=100000.0)
-    
-    if "n_conj" not in st.session_state: st.session_state.n_conj = 1
+# ==========================================
+# ABA 2: CARTEIRA CONJUNTA
+# ==========================================
+with aba2:
+    st.header("🏗️ Composição da Carteira")
+    prazo_j = st.slider("Prazo Global (Meses)", 1, 240, 36)
+    meta_j = st.number_input("Meta de Patrimônio (R$)", 0.0, value=100000.0)
     
     ativos_j = []
     for i in range(st.session_state.n_conj):
-        with st.expander(f"Ativo {i+1}", expanded=True):
-            c1, c2, c3, c4 = st.columns([1.5, 1, 1, 1])
-            tipo = c1.selectbox("Tipo", ["CDB", "LCI/LCA", "Tesouro Selic", "Tesouro Prefixado", "Tesouro IPCA+", "Poupança"], key=f"t2_{i}")
-            v_i = c2.number_input("Inicial (R$)", 0.0, value=5000.0, key=f"v2_i{i}")
-            v_a = c3.number_input("Aporte (R$)", 0.0, value=500.0, key=f"v2_a{i}")
-            ex = 0.0
-            if tipo in ["CDB", "LCI/LCA"]: ex = c4.number_input("% CDI", 0.0, key=f"v2_e{i}", value=100.0)
-            elif tipo == "Tesouro Prefixado": ex = c4.number_input("Taxa %", 0.0, key=f"v2_e{i}", value=11.0)
-            elif tipo == "Tesouro IPCA+": ex = c4.number_input("Fixa %", 0.0, key=f"v2_e{i}", value=6.0)
-            
-            tx, isen = calcular_taxa_anual(tipo, s_s, c_s, i_s, ex)
-            ativos_j.append({"ini": v_i, "apo": v_a, "taxa": tx, "isento": isen})
+        c1, c2, c3, c4 = st.columns([1.5, 1, 1, 1])
+        tipo = c1.selectbox("Tipo", ["CDB", "LCI/LCA", "Tesouro Selic", "Tesouro Prefixado", "Tesouro IPCA+", "Poupança"], key=f"t_j{i}")
+        v_ini = c2.number_input("Inicial", 0.0, value=10000.0, key=f"v_j{i}")
+        v_apo = c3.number_input("Aporte", 0.0, value=1000.0, key=f"a_j{i}")
+        
+        p_ad = 0.0
+        if tipo in ["CDB", "LCI/LCA"]: p_ad = c4.number_input("% CDI", 0.0, value=100.0, key=f"p_j{i}")
+        elif tipo == "Tesouro Prefixado": p_ad = c4.number_input("Taxa %", 0.0, value=11.0, key=f"p_j{i}")
+        elif tipo == "Tesouro IPCA+": p_ad = c4.number_input("Fixa %", 0.0, value=6.0, key=f"p_j{i}")
+        else: c4.write("---")
+        
+        tx, isen = definir_logica_ativo(tipo, s_sim, c_sim, i_sim, p_ad)
+        ativos_j.append({"ini": v_ini, "apo": v_apo, "taxa": tx, "isento": isen})
 
-    c_bj1, c_bj2, _ = st.columns([1,1,4])
-    if c_bj1.button("➕ Ativo", key="bj_add"): st.session_state.n_conj += 1; st.rerun()
-    if c_bj2.button("➖ Ativo", key="bj_rem") and st.session_state.n_conj > 1: st.session_state.n_conj -= 1; st.rerun()
-
-    if st.button("🚀 Calcular Carteira", type="primary", width="stretch"):
-        dfs = [simular(a["ini"], a["apo"], a["taxa"], i_s, j_mes, a["isento"]) for a in ativos_j]
-        df_total = pd.DataFrame({"Mês": dfs[0]["Mês"]})
-        df_total["Saldo Líquido"] = sum(d["Saldo Líquido"] for d in dfs)
-        df_total["Investido"] = sum(d["Investido"] for d in dfs)
-        df_total["Líquido Real"] = sum(d["Líquido Real"] for d in dfs)
-        
-        # Métricas com Proteção contra Zero
-        total_inv = df_total["Investido"].iloc[-1]
-        total_liq = df_total["Saldo Líquido"].iloc[-1]
-        lucro = total_liq - total_inv
-        perc = (lucro / total_inv * 100) if total_inv > 0 else 0
-        
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Saldo Líquido Final", f"R$ {total_liq:,.2f}")
-        m2.metric("Total Investido", f"R$ {total_inv:,.2f}")
-        m3.metric("Lucro Líquido", f"R$ {lucro:,.2f}", f"{perc:.1f}%")
-        
-        if j_meta > 0:
-            atingiu = df_total[df_total["Saldo Líquido"] >= j_meta]
-            if not atingiu.empty:
-                st.success(f"🎯 Meta atingida no Mês {atingiu.iloc[0]['Mês']}!")
-        
-        fig_j = px.area(df_total, x="Mês", y=["Saldo Líquido", "Investido", "Líquido Real"], 
-                        title="Patrimônio Nominal vs Real (Poder de Compra)")
-        st.plotly_chart(fig_j, use_container_width=True)
-        
-        with st.expander("📄 Extrato Detalhado"):
-            st.dataframe(df_total.set_index("Mês"), use_container_width=True)
-
-# --- ABA 3: ALVOS (PIZZA) ---
-with tab3:
-    st.header("🥧 Alocação Sugerida")
-    val_t = st.number_input("Valor Total", 0.0, value=100000.0)
-    p_pos = st.slider("% Pós-Fixado", 0, 100, 50)
-    p_inf = st.slider("% Inflação", 0, 100 - p_pos, 30)
-    p_pre = 100 - p_pos - p_inf
-    st.metric("Prefixado", f"{p_pre}%")
+    col_j1, col_j2 = st.columns([1, 5])
+    if col_j1.button("➕ Ativo", key="add_j", width="stretch"): st.session_state.n_conj += 1; st.rerun()
     
-    df_p = pd.DataFrame({"Cat": ["Pós", "Inflação", "Pre"], "Val": [p_pos, p_inf, p_pre]})
-    st.plotly_chart(px.pie(df_p, names="Cat", values="Val", hole=0.4))
+    if st.button("🚀 Calcular Patrimônio Total", type="primary", width="stretch"):
+        dfs_j = [executar_simulacao(a["ini"], a["apo"], a["taxa"], i_sim, prazo_j, a["isento"]) for a in ativos_j]
+        
+        df_total = pd.DataFrame({"Mês": dfs_j[0]["Mês"]})
+        df_total["Investido"] = sum(d["Total Investido"] for d in dfs_j)
+        df_total["Líquido"] = sum(d["Saldo Líquido"] for d in dfs_j)
+        
+        # Dashboard
+        m1, m2, m3 = st.columns(3)
+        f_liq = df_total["Líquido"].iloc[-1]
+        f_inv = df_total["Investido"].iloc[-1]
+        m1.metric("Saldo Líquido Final", f"R$ {f_liq:,.2f}")
+        m2.metric("Total Investido", f"R$ {f_inv:,.2f}")
+        m3.metric("Lucro Líquido", f"R$ {f_liq - f_inv:,.2f}", f"{( (f_liq/f_inv)-1)*100:.1f}%")
+        
+        # Meta Radar
+        if meta_j > 0:
+            atingiu = df_total[df_total["Líquido"] >= meta_j]
+            if not atingiu.empty:
+                st.success(f"🎯 Meta de R$ {meta_j:,.2f} atingida no **Mês {atingiu.iloc[0]['Mês']}**!")
+        
+        fig_j = px.area(df_total, x="Mês", y=["Líquido", "Investido"], title="Acúmulo de Patrimônio")
+        if meta_j > 0: fig_j.add_hline(y=meta_j, line_dash="dash", line_color="green")
+        st.plotly_chart(fig_j, use_container_width=True)
+
+# ==========================================
+# ABA 3: ALVOS (CARTEIRA IDEAL)
+# ==========================================
+with aba3:
+    st.header("🥧 Alocação Sugerida")
+    total_inv = st.number_input("Capital para Alocar", 0.0, value=50000.0)
+    
+    c1, c2 = st.columns(2)
+    p_rf = c1.slider("% Renda Fixa Pós (Liquidez)", 0, 100, 40)
+    p_pre = c2.slider("% Prefixados/IPCA+ (Longo Prazo)", 0, 100 - p_rf, 30)
+    p_outros = 100 - p_rf - p_pre
+    
+    df_pizza = pd.DataFrame({
+        "Categoria": ["Pós-Fixado", "Inflação/Pre", "Reserva/Outros"],
+        "Valor": [total_inv * (p_rf/100), total_inv * (p_pre/100), total_inv * (p_outros/100)]
+    })
+    st.plotly_chart(px.pie(df_pizza, values="Valor", names="Categoria", hole=0.5))

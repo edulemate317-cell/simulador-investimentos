@@ -22,7 +22,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 1. FUNÇÕES DE BACKEND (Com IR Corrigido)
+# 1. FUNÇÕES DE BACKEND
 # ==========================================
 @st.cache_data(ttl=3600)
 def obter_taxas_atuais():
@@ -31,12 +31,15 @@ def obter_taxas_atuais():
         url_ipca = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.13522/dados/ultimos/1?formato=json"
         r_selic = requests.get(url_selic, timeout=5)
         r_ipca = requests.get(url_ipca, timeout=5)
+        r_selic.raise_for_status()
+        r_ipca.raise_for_status()
+        
         selic = float(r_selic.json()[0]['valor']) / 100
         ipca = float(r_ipca.json()[0]['valor']) / 100
         cdi = selic - 0.0010
-        return selic, cdi, ipca
+        return selic, cdi, ipca, False # False indica que não houve erro na API
     except (requests.exceptions.RequestException, ValueError, KeyError): 
-        return 0.1050, 0.1040, 0.0450 
+        return 0.1050, 0.1040, 0.0450, True # True indica que usou fallback
 
 def obter_aliquota_ir(meses):
     if meses < 6: return 0.225
@@ -90,8 +93,12 @@ if "num_ativos_conj" not in st.session_state: st.session_state["num_ativos_conj"
 # 3. INTERFACE PRINCIPAL
 # ==========================================
 st.title("🚀 InvestSim Pro: Inteligência Financeira")
-selic, cdi, ipca = obter_taxas_atuais()
-st.info(f"**Taxas Atuais:** Selic: {selic*100:.2f}% a.a. | CDI: {cdi*100:.2f}% a.a. | IPCA (12m): {ipca*100:.2f}%")
+selic, cdi, ipca, erro_api = obter_taxas_atuais()
+
+if erro_api:
+    st.warning(f"⚠️ Não foi possível conectar ao Banco Central. Usando projeções padrão: Selic {selic*100:.2f}% | IPCA {ipca*100:.2f}%")
+else:
+    st.info(f"**Taxas Atuais:** Selic: {selic*100:.2f}% a.a. | CDI: {cdi*100:.2f}% a.a. | IPCA (12m): {ipca*100:.2f}%")
 
 aba_comp, aba_conj, aba_ideal = st.tabs(["📊 Comparador Direto", "🏗️ Construção de Patrimônio", "🥧 Alvos de Carteira"])
 
@@ -131,15 +138,15 @@ with aba_comp:
     configs_comp = [input_ativo_comp(i+1) for i in range(st.session_state["num_ativos_comp"])]
     
     col_a, col_r = st.sidebar.columns(2)
-    if col_a.button("➕ Adicionar", key="add_c", width="stretch"): 
+    if col_a.button("➕ Adicionar", key="add_c", use_container_width=True): 
         st.session_state["num_ativos_comp"] += 1
         st.rerun()
-    if col_r.button("➖ Remover", key="rem_c", width="stretch") and st.session_state["num_ativos_comp"] > 1: 
+    if col_r.button("➖ Remover", key="rem_c", use_container_width=True) and st.session_state["num_ativos_comp"] > 1: 
         st.session_state["num_ativos_comp"] -= 1
         st.rerun()
     
     st.sidebar.divider()
-    if st.sidebar.button("🚀 Simular Comparação", type="primary", width="stretch"):
+    if st.sidebar.button("🚀 Simular Comparação", type="primary", use_container_width=True):
         res_comp = []
         for c in configs_comp:
             df, tot, liq, imp, ali = simular_evolucao(c_ini, c_apo, c["taxa"], ipca, c_mes, c["isento"])
@@ -151,8 +158,8 @@ with aba_comp:
         for i, r in enumerate(res_comp):
             with cols[i]:
                 st.subheader(r["nome"])
-                g_real = r['df']['Poder de Compra Real (R$)'].iloc[-1] - r['total']
-                st.metric("Resgate Líquido", f"R$ {r['liq']:,.2f}", f"Ganho Real: R$ {g_real:,.2f}")
+                valor_real_final = r['df']['Poder de Compra Real (R$)'].iloc[-1]
+                st.metric("Resgate Líquido", f"R$ {r['liq']:,.2f}", f"Poder de Compra: R$ {valor_real_final:,.2f}")
                 
                 if r["tipo"] == "LCI/LCA":
                     equiv_cdb = r["perc"] / (1 - obter_aliquota_ir(c_mes))
@@ -163,7 +170,6 @@ with aba_comp:
                 else: 
                     st.warning(f"🔴 **IR Retido:** R$ {r['imp']:,.2f} ({r['ali']*100:.1f}%)")
         
-        # --- MELHORIA APLICADA: GRÁFICO PLOTLY NA ABA 1 ---
         st.subheader("Evolução do Poder de Compra (Ganho Real)")
         c_data = pd.DataFrame({"Mês": res_comp[0]["df"]["Mês"]}).set_index("Mês")
         c_data["Seu Dinheiro"] = res_comp[0]["df"]["Total Investido (R$)"]
@@ -182,7 +188,7 @@ with aba_comp:
         
         st.divider()
         csv_comp = c_data.reset_index().to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
-        st.download_button("📥 Baixar Comparação (Excel)", csv_comp, "comparacao.csv", "text/csv", width="stretch")
+        st.download_button("📥 Baixar Comparação (CSV)", csv_comp, "comparacao.csv", "text/csv", use_container_width=True)
     else:
         st.write("👈 Configure os ativos na barra lateral e clique em **Simular Comparação**.")
 
@@ -229,15 +235,15 @@ with aba_conj:
     
     st.write("")
     c_b1, c_b2, _ = st.columns([1,1,3])
-    if c_b1.button("➕ Adicionar Ativo", key="btn_add_j", width="stretch"): 
+    if c_b1.button("➕ Adicionar Ativo", key="btn_add_j", use_container_width=True): 
         st.session_state["num_ativos_conj"] += 1
         st.rerun()
-    if c_b2.button("➖ Remover Ativo", key="btn_rem_j", width="stretch") and st.session_state["num_ativos_conj"] > 1: 
+    if c_b2.button("➖ Remover Ativo", key="btn_rem_j", use_container_width=True) and st.session_state["num_ativos_conj"] > 1: 
         st.session_state["num_ativos_conj"] -= 1
         st.rerun()
 
     st.divider()
-    if st.button("🚀 Calcular Patrimônio Conjunto", type="primary", width="stretch"):
+    if st.button("🚀 Calcular Patrimônio Conjunto", type="primary", use_container_width=True):
         all_dfs = []
         total_final = 0; total_inv = 0; total_imp = 0
         
@@ -275,13 +281,13 @@ with aba_conj:
                                annotation_font=dict(color="#10b981", size=14))
             
         fig_conj.update_layout(xaxis_title="Meses", yaxis_title="Valor (R$)", legend_title_text="", hovermode="x unified")
-        st.plotly_chart(fig_conj)
+        st.plotly_chart(fig_conj, use_container_width=True)
 
         with st.expander("📄 Ver Extrato Detalhado da Carteira"):
             st.dataframe(df_sum.set_index("Mês"), use_container_width=True)
 
         csv_conj = df_sum.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
-        st.download_button("📥 Baixar Dados da Carteira (Excel)", csv_conj, "carteira_conjunta.csv", "text/csv", width="stretch")
+        st.download_button("📥 Baixar Dados da Carteira (CSV)", csv_conj, "carteira_conjunta.csv", "text/csv", use_container_width=True)
 
 # --- ABA 3: ALVOS (CARTEIRA IDEAL) ---
 with aba_ideal:
@@ -305,4 +311,4 @@ with aba_ideal:
     })
     
     fig = px.pie(df_pie, values='Valor', names='Tipo', hole=0.4, color_discrete_sequence=['#3b82f6', '#10b981', '#f59e0b'])
-    st.plotly_chart(fig)
+    st.plotly_chart(fig, use_container_width=True)

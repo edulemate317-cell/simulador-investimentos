@@ -22,14 +22,13 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 1. FUNÇÕES DE BACKEND
+# 1. FUNÇÕES DE BACKEND (Com IR Corrigido)
 # ==========================================
-@st.cache_data(ttl=3600) # Atualiza a cada 1 hora
+@st.cache_data(ttl=3600)
 def obter_taxas_atuais():
     try:
         url_selic = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json"
         url_ipca = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.13522/dados/ultimos/1?formato=json"
-        # Timeout de 5s para não travar o app se o BC cair
         r_selic = requests.get(url_selic, timeout=5)
         r_ipca = requests.get(url_ipca, timeout=5)
         selic = float(r_selic.json()[0]['valor']) / 100
@@ -37,7 +36,6 @@ def obter_taxas_atuais():
         cdi = selic - 0.0010
         return selic, cdi, ipca
     except (requests.exceptions.RequestException, ValueError, KeyError): 
-        # Fallback seguro com exceções específicas
         return 0.1050, 0.1040, 0.0450 
 
 def obter_aliquota_ir(meses):
@@ -56,19 +54,15 @@ def simular_evolucao(capital_inicial, aporte_mensal, taxa_anual, ipca_anual, mes
     
     for mes in range(0, meses + 1):
         if mes > 0:
-            # Juros compostos rendem sobre o BRUTO (Sem descontar IR mensalmente)
             saldo_bruto = (saldo_bruto * (1 + taxa_mensal)) + aporte_mensal
-            # Aporte deflacionado para cálculo real
             saldo_real_bruto = (saldo_real_bruto * (1 + taxa_mensal) / (1 + inflacao_mensal)) + (aporte_mensal / ((1 + inflacao_mensal) ** mes))
             total_investido += aporte_mensal
             
-        # Simulação do IR apenas para visualização no mês (como se resgatasse naquele dia)
         lucro_parcial = max(0, saldo_bruto - total_investido)
         aliq = 0 if isento_ir else obter_aliquota_ir(mes if mes > 0 else 1)
         imposto_estimado = lucro_parcial * aliq
         saldo_liquido = saldo_bruto - imposto_estimado
         
-        # Poder de compra descontando o imposto ajustado
         fator_inflacao = (1 + inflacao_mensal) ** mes if mes > 0 else 1
         poder_compra_real = saldo_real_bruto - (imposto_estimado / fator_inflacao)
         
@@ -160,7 +154,6 @@ with aba_comp:
                 g_real = r['df']['Poder de Compra Real (R$)'].iloc[-1] - r['total']
                 st.metric("Resgate Líquido", f"R$ {r['liq']:,.2f}", f"Ganho Real: R$ {g_real:,.2f}")
                 
-                # --- MELHORIA 1: TAXA EQUIVALENTE ---
                 if r["tipo"] == "LCI/LCA":
                     equiv_cdb = r["perc"] / (1 - obter_aliquota_ir(c_mes))
                     st.caption(f"💡 Equivale a um CDB de **{equiv_cdb:.1f}%**")
@@ -170,14 +163,17 @@ with aba_comp:
                 else: 
                     st.warning(f"🔴 **IR Retido:** R$ {r['imp']:,.2f} ({r['ali']*100:.1f}%)")
         
+        # --- MELHORIA APLICADA: GRÁFICO PLOTLY NA ABA 1 ---
         st.subheader("Evolução do Poder de Compra (Ganho Real)")
         c_data = pd.DataFrame({"Mês": res_comp[0]["df"]["Mês"]}).set_index("Mês")
         c_data["Seu Dinheiro"] = res_comp[0]["df"]["Total Investido (R$)"]
         for r in res_comp: 
             c_data[r["nome"]] = r["df"]["Poder de Compra Real (R$)"]
-        st.line_chart(c_data)
+            
+        fig_comp = px.line(c_data, x=c_data.index, y=c_data.columns, color_discrete_sequence=px.colors.qualitative.Plotly)
+        fig_comp.update_layout(xaxis_title="Meses", yaxis_title="Valor (R$)", legend_title_text="", hovermode="x unified")
+        st.plotly_chart(fig_comp, use_container_width=True)
         
-        # --- MELHORIA 2: EXTRATO MENSAL (ABA 1) ---
         with st.expander("📄 Ver Extrato Detalhado Mês a Mês"):
             extrato_comp = pd.DataFrame({"Mês": res_comp[0]["df"]["Mês"]}).set_index("Mês")
             for r in res_comp:
@@ -197,7 +193,6 @@ with aba_conj:
     
     c_p1, c_p2 = st.columns([2, 1])
     p_meses = c_p1.slider("Prazo Global (Meses)", 1, 120, 24, key="mes_conj")
-    # --- MELHORIA 3: META FINANCEIRA ---
     meta_alvo = c_p2.number_input("🎯 Meta Financeira Opcional (R$)", min_value=0.0, value=0.0, step=10000.0, help="Deixe 0 se não quiser usar.")
     st.divider()
     
@@ -253,12 +248,10 @@ with aba_conj:
             total_inv += inv
             total_imp += imp
             
-        # Correção da tabela de soma total
         df_sum = all_dfs[0][["Mês"]].copy()
         df_sum["Total Investido (R$)"] = sum(d["Total Investido (R$)"] for d in all_dfs)
         df_sum["Patrimônio Líquido (R$)"] = sum(d["Saldo Líquido (R$)"] for d in all_dfs)
         
-        # --- LÓGICA DO RADAR DE METAS ---
         if meta_alvo > 0:
             atingiu = df_sum[df_sum["Patrimônio Líquido (R$)"] >= meta_alvo]
             if not atingiu.empty:
@@ -272,7 +265,6 @@ with aba_conj:
         c2.metric("Patrimônio Líquido Final", f"R$ {total_final:,.2f}", f"Lucro: R$ {total_final-total_inv:,.2f}")
         c3.metric("Imposto de Renda Total", f"R$ {total_imp:,.2f}")
         
-        # Correção do gráfico da meta com Plotly
         st.subheader("Evolução do Patrimônio Somado")
         fig_conj = px.line(df_sum, x="Mês", y=["Patrimônio Líquido (R$)", "Total Investido (R$)"], 
                            color_discrete_map={"Patrimônio Líquido (R$)": "#3b82f6", "Total Investido (R$)": "#f59e0b"})
@@ -285,7 +277,6 @@ with aba_conj:
         fig_conj.update_layout(xaxis_title="Meses", yaxis_title="Valor (R$)", legend_title_text="", hovermode="x unified")
         st.plotly_chart(fig_conj)
 
-        # --- MELHORIA 2: EXTRATO MENSAL (ABA 2) ---
         with st.expander("📄 Ver Extrato Detalhado da Carteira"):
             st.dataframe(df_sum.set_index("Mês"), use_container_width=True)
 

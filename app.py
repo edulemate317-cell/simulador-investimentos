@@ -22,59 +22,73 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 1. FUNÇÕES DE BACKEND
+# 1. FUNÇÕES DE BACKEND (Com Proteção de Parse e Type Hints)
 # ==========================================
 @st.cache_data(ttl=3600)
-def obter_taxas_atuais():
+def obter_taxas_atuais() -> tuple[float, float, float, bool]:
+    url_selic = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json"
+    url_ipca = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.13522/dados/ultimos/1?formato=json"
+    
     try:
-        url_selic = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json"
-        url_ipca = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.13522/dados/ultimos/1?formato=json"
-        
-        r_selic = requests.get(url_selic, timeout=5)
-        r_ipca = requests.get(url_ipca, timeout=5)
-        r_selic.raise_for_status()
-        r_ipca.raise_for_status()
-        
-        dados_selic = r_selic.json()
-        dados_ipca = r_ipca.json()
-        
-        if not dados_selic or not dados_ipca:
-            raise ValueError("Resposta vazia da API do Banco Central")
-        
-        selic = float(dados_selic[0]['valor']) / 100
-        ipca = float(dados_ipca[0]['valor']) / 100
-        cdi = selic - 0.0010
-        return selic, cdi, ipca, False
+        with requests.Session() as s:
+            r_selic = s.get(url_selic, timeout=(3.05, 10))
+            r_ipca = s.get(url_ipca, timeout=(3.05, 10))
+            r_selic.raise_for_status()
+            r_ipca.raise_for_status()
+            
+            dados_selic = r_selic.json()
+            dados_ipca = r_ipca.json()
+            
+            if not dados_selic or not dados_ipca:
+                raise ValueError("Resposta vazia da API")
+            
+            # Proteção contra vírgulas na resposta do Banco Central
+            selic = float(str(dados_selic[0]['valor']).replace(',', '.')) / 100
+            ipca = float(str(dados_ipca[0]['valor']).replace(',', '.')) / 100
+            cdi = selic - 0.0010
+            return selic, cdi, ipca, False
     except (requests.exceptions.RequestException, ValueError, KeyError, IndexError): 
         return 0.1050, 0.1040, 0.0450, True
 
-def obter_aliquota_ir(meses):
-    if meses < 6: return 0.225
-    elif meses < 12: return 0.200
-    elif meses < 24: return 0.175
+def obter_aliquota_ir(meses: int) -> float:
+    if meses <= 6: return 0.225
+    elif meses <= 12: return 0.200
+    elif meses <= 24: return 0.175
     else: return 0.150
 
-def simular_evolucao(capital_inicial, aporte_mensal, taxa_anual, ipca_anual, meses, isento_ir):
+def calcular_taxa_ativo(tipo: str, selic: float, cdi: float, ipca: float, perc_cdi: float = 100.0, taxa_fixa: float = 0.0) -> tuple[float, bool]:
+    if tipo == "Poupança": 
+        return (1.005**12-1) if selic > 0.085 else (selic*0.7), True
+    elif tipo in ["CDB", "LCI/LCA"]:
+        return cdi * (perc_cdi/100), (tipo == "LCI/LCA")
+    elif tipo == "Tesouro Selic": 
+        return selic - 0.002, False
+    elif tipo == "Tesouro Prefixado": 
+        return (taxa_fixa/100) - 0.002, False
+    elif tipo == "Tesouro IPCA+": 
+        return (((1+ipca)*(1+(taxa_fixa/100)))-1) - 0.002, False
+    return 0.0, False
+
+def simular_evolucao(capital_inicial: float, aporte_mensal: float, taxa_anual: float, ipca_anual: float, meses: int, isento_ir: bool) -> tuple[pd.DataFrame, float, float, float, float]:
     taxa_mensal = (1 + taxa_anual) ** (1 / 12) - 1
     inflacao_mensal = (1 + ipca_anual) ** (1 / 12) - 1
+    
     saldo_bruto = capital_inicial
-    saldo_real_bruto = capital_inicial
     total_investido = capital_inicial
     historico = []
     
     for mes in range(0, meses + 1):
         if mes > 0:
             saldo_bruto = (saldo_bruto * (1 + taxa_mensal)) + aporte_mensal
-            saldo_real_bruto = (saldo_real_bruto * (1 + taxa_mensal) / (1 + inflacao_mensal)) + (aporte_mensal / ((1 + inflacao_mensal) ** mes))
             total_investido += aporte_mensal
             
         lucro_parcial = max(0, saldo_bruto - total_investido)
         aliq = 0 if isento_ir else obter_aliquota_ir(mes if mes > 0 else 1)
         imposto_estimado = lucro_parcial * aliq
-        saldo_liquido = saldo_bruto - imposto_estimado
         
-        fator_inflacao = (1 + inflacao_mensal) ** mes if mes > 0 else 1
-        poder_compra_real = saldo_real_bruto - (imposto_estimado / fator_inflacao)
+        saldo_liquido = saldo_bruto - imposto_estimado
+        fator_inflacao = (1 + inflacao_mensal) ** mes if mes > 0 else 1.0
+        poder_compra_real = saldo_liquido / fator_inflacao
         
         historico.append({
             "Mês": mes,
@@ -119,27 +133,18 @@ with aba_comp:
     def input_ativo_comp(n):
         st.sidebar.subheader(f"Ativo {n}")
         t = st.sidebar.selectbox("Tipo", ["CDB", "LCI/LCA", "Poupança", "Tesouro Selic", "Tesouro Prefixado", "Tesouro IPCA+"], key=f"tc{n}")
-        tx = 0.0
-        isen = False
-        perc = 0.0
         
-        if t == "Poupança": 
-            tx = (1.005**12-1) if selic > 0.085 else (selic*0.7)
-            isen = True
-        elif t in ["CDB", "LCI/LCA"]:
-            p = st.sidebar.number_input("% do CDI", min_value=0.0, value=100.0, step=1.0, key=f"pc{n}")
-            tx = cdi*(p/100)
-            isen = (t == "LCI/LCA")
-            perc = p
-        elif t == "Tesouro Selic": 
-            tx = selic - 0.002
+        perc = 100.0
+        t_fixa = 10.5
+        
+        if t in ["CDB", "LCI/LCA"]:
+            perc = st.sidebar.number_input("% do CDI", min_value=0.0, value=100.0, step=1.0, key=f"pc{n}")
         elif t == "Tesouro Prefixado": 
-            p = st.sidebar.number_input("Taxa % a.a.", min_value=0.0, value=10.5, step=0.1, key=f"pre_c{n}")
-            tx = (p/100) - 0.002
+            t_fixa = st.sidebar.number_input("Taxa % a.a.", min_value=0.0, value=10.5, step=0.1, key=f"pre_c{n}")
         elif t == "Tesouro IPCA+": 
-            p = st.sidebar.number_input("Taxa Fixa %", min_value=0.0, value=5.5, step=0.1, key=f"ipca_c{n}")
-            tx = (((1+ipca)*(1+(p/100)))-1) - 0.002
+            t_fixa = st.sidebar.number_input("Taxa Fixa %", min_value=0.0, value=5.5, step=0.1, key=f"ipca_c{n}")
             
+        tx, isen = calcular_taxa_ativo(t, selic, cdi, ipca, perc, t_fixa)
         return {"nome": f"{t} {n}", "tipo": t, "taxa": tx, "isento": isen, "perc": perc}
 
     configs_comp = [input_ativo_comp(i+1) for i in range(st.session_state["num_ativos_comp"])]
@@ -216,26 +221,19 @@ with aba_conj:
         ini = c2.number_input("Inicial (R$)", min_value=0.0, step=1000.0, value=5000.0, key=f"ij{n}")
         apo = c3.number_input("Aporte (R$)", min_value=0.0, step=100.0, value=200.0, key=f"aj{n}")
         
-        tx = 0.0
-        isen = False
+        perc = 100.0
+        t_fixa = 10.5
         
-        if t == "Poupança": 
-            tx = (1.005**12-1) if selic > 0.085 else (selic*0.7)
-            isen = True
-        elif t in ["CDB", "LCI/LCA"]:
-            p = c4.number_input("% CDI", min_value=0.0, value=100.0, step=1.0, key=f"pj{n}")
-            tx = cdi*(p/100)
-            isen = (t == "LCI/LCA")
+        if t in ["CDB", "LCI/LCA"]:
+            perc = c4.number_input("% CDI", min_value=0.0, value=100.0, step=1.0, key=f"pj{n}")
         elif t == "Tesouro Selic": 
-            tx = selic - 0.002
             c4.caption(f"-0,2% B3")
         elif t == "Tesouro Prefixado": 
-            p = c4.number_input("% a.a.", min_value=0.0, value=10.5, step=0.1, key=f"prej{n}")
-            tx = (p/100) - 0.002
+            t_fixa = c4.number_input("% a.a.", min_value=0.0, value=10.5, step=0.1, key=f"prej{n}")
         elif t == "Tesouro IPCA+": 
-            p = c4.number_input("Taxa Fixa", min_value=0.0, value=5.5, step=0.1, key=f"ipcaj{n}")
-            tx = (((1+ipca)*(1+(p/100)))-1) - 0.002
+            t_fixa = c4.number_input("Taxa Fixa", min_value=0.0, value=5.5, step=0.1, key=f"ipcaj{n}")
             
+        tx, isen = calcular_taxa_ativo(t, selic, cdi, ipca, perc, t_fixa)
         return {"ini": ini, "apo": apo, "taxa": tx, "isento": isen, "nome": f"{t}"}
 
     configs_conj = [row_ativo_conj(i+1) for i in range(st.session_state["num_ativos_conj"])]

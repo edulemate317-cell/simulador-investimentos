@@ -142,7 +142,9 @@ with aba_conj:
         tx = 0.0; isen = False
         if t == "Poupança": tx = (1.005**12-1) if selic > 0.085 else (selic*0.7); isen = True
         elif t in ["CDB", "LCI/LCA"]:
-            p = c4.number_input("% CDI", 100.0, step=1.0, key=f"pj{n}"); tx = cdi*(p/100); isen = (t == "LCI/LCA")
+            p = c4.number_input("% CDI", min_value=0.0, value=100.0, step=1.0, key=f"pj{n}")
+            tx = cdi*(p/100)
+            isen = (t == "LCI/LCA")
         elif t == "Tesouro Selic": tx = selic; c4.write(f"Selic")
         elif t == "Tesouro Prefixado": p = c4.number_input("% a.a.", 10.5, step=0.1, key=f"prej{n}"); tx = p/100
         elif t == "Tesouro IPCA+": p = c4.number_input("Taxa Fixa", 5.5, step=0.1, key=f"ipcaj{n}"); tx = ((1+ipca)*(1+(p/100)))-1

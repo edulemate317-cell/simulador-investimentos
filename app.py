@@ -10,8 +10,7 @@ st.set_page_config(page_title="InvestSim - Pro", layout="wide")
 
 st.markdown("""
     <style>
-    header { background-color: transparent !important; }
-    [data-testid="stToolbar"] { display: none !important; }
+    header { clip-path: inset(0 80% 0 0) !important; }
     [data-testid="stDecoration"] {display: none !important;}
     footer {display: none !important;}
     [data-testid="stAppDeployButton"] {display: none !important;}

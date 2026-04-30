@@ -9,18 +9,14 @@ import plotly.express as px
 st.set_page_config(
     page_title="InvestSim Pro", 
     layout="wide", 
-    initial_sidebar_state="expanded" # Garante que comece aberto
+    initial_sidebar_state="expanded"  # Garante que o painel inicie aberto
 )
 
+# CSS minimizado para manter o design limpo sem quebrar a navegação
 st.markdown("""
     <style>
     header { background-color: transparent !important; }
-    [data-testid="stToolbar"] { display: none !important; }
-    [data-testid="stDecoration"] { display: none !important; }
     footer { display: none !important; }
-    [data-testid="stAppDeployButton"] { display: none !important; }
-    [data-testid="viewerBadge"] { display: none !important; }
-    .header-anchor { display: none !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -31,85 +27,57 @@ st.markdown("""
 @st.cache_data(ttl=3600)
 def buscar_indicadores():
     try:
-        url_selic = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json"
-        url_ipca = "https://api.bcb.gov.br/dados/serie/bcdata.sgs.13522/dados/ultimos/1?formato=json"
-
-        r_selic = requests.get(url_selic, timeout=5)
-        r_ipca = requests.get(url_ipca, timeout=5)
-
-        r_selic.raise_for_status()
-        r_ipca.raise_for_status()
-
+        # Timeout curto para não travar o app
+        r_selic = requests.get("https://api.bcb.gov.br/dados/serie/bcdata.sgs.432/dados/ultimos/1?formato=json", timeout=3)
+        r_ipca = requests.get("https://api.bcb.gov.br/dados/serie/bcdata.sgs.13522/dados/ultimos/1?formato=json", timeout=3)
+        
         selic = float(r_selic.json()[0]["valor"]) / 100
         ipca = float(r_ipca.json()[0]["valor"]) / 100
-
     except (requests.exceptions.RequestException, ValueError, KeyError, IndexError):
         selic, ipca = 0.1075, 0.0450
-
-    cdi = selic - 0.001
-    return selic, cdi, ipca
+        
+    return selic, (selic - 0.001), ipca
 
 def calcular_taxa_anual(tipo, selic, cdi, ipca, extra=0.0):
     if tipo == "Poupança":
         taxa = (1.005**12 - 1) if selic > 0.085 else (selic * 0.7)
         return taxa, True
-
     if tipo == "CDB":
         return cdi * (extra / 100), False
-
     if tipo == "LCI/LCA":
         return cdi * (extra / 100), True
-
     if tipo == "Tesouro Selic":
         return max(0.0, selic - 0.002), False
-
     if tipo == "Tesouro Prefixado":
         return max(0.0, (extra / 100) - 0.002), False
-
     if tipo == "Tesouro IPCA+":
         return max(0.0, (((1 + ipca) * (1 + extra / 100)) - 1) - 0.002), False
-
     return 0.0, False
 
 def aliquota_ir(meses):
-    if meses < 6:
-        return 0.225
-    if meses < 12:
-        return 0.200
-    if meses < 24:
-        return 0.175
+    if meses < 6: return 0.225
+    if meses < 12: return 0.200
+    if meses < 24: return 0.175
     return 0.150
 
 def simular(v_ini, v_apo, tx_a, ipca_a, meses, isento):
     tx_m = (1 + tx_a) ** (1 / 12) - 1
     inf_m = (1 + ipca_a) ** (1 / 12) - 1
-
-    bruto = v_ini
-    real_bruto = v_ini
-    investido = v_ini
+    bruto, real_bruto, investido = v_ini, v_ini, v_ini
     dados = []
-
     for m in range(meses + 1):
         if m > 0:
             bruto = (bruto * (1 + tx_m)) + v_apo
             investido += v_apo
             real_bruto = (real_bruto * (1 + tx_m) / (1 + inf_m)) + (v_apo / ((1 + inf_m) ** m))
-
         lucro = max(0, bruto - investido)
         ir = 0.0 if isento else lucro * aliquota_ir(m)
-        liquido = bruto - ir
-        real_liquido = real_bruto - (ir / ((1 + inf_m) ** m))
-
         dados.append({
             "Mês": m,
-            "Investido": round(investido, 2),
-            "Saldo Bruto": round(bruto, 2),
-            "IR Estimado": round(ir, 2),
-            "Saldo Líquido": round(liquido, 2),
-            "Saldo Real Bruto": round(real_bruto, 2),
-            "Saldo Real Líquido": round(real_liquido, 2),
+            "Investido": investido,
+            "Saldo Líquido": bruto - ir,
+            "Saldo Real Líquido": real_bruto - (ir / ((1 + inf_m) ** m))
         })
-
     return pd.DataFrame(dados)
 
 # ==========================================
@@ -117,31 +85,22 @@ def simular(v_ini, v_apo, tx_a, ipca_a, meses, isento):
 # ==========================================
 selic_h, cdi_h, ipca_h = buscar_indicadores()
 
-if "n_comp" not in st.session_state:
-    st.session_state.n_comp = 2
-
-if "n_conj" not in st.session_state:
-    st.session_state.n_conj = 1
+if "n_comp" not in st.session_state: st.session_state.n_comp = 2
+if "n_conj" not in st.session_state: st.session_state.n_conj = 1
 
 st.title("🚀 InvestSim Pro")
-st.caption("Simulador de Renda Fixa com projeção nominal e real.")
 
 with st.sidebar:
     st.header("🌍 Cenário Econômico")
     cenario = st.selectbox("Cenário", ["Atual", "Otimista (Juros ↑)", "Pessimista (Juros ↓)"])
-
     if cenario == "Otimista (Juros ↑)":
-        selic_sim = selic_h + 0.02
-        ipca_sim = max(0.02, ipca_h - 0.01)
+        s_s, i_s = selic_h + 0.02, max(0.02, ipca_h - 0.01)
     elif cenario == "Pessimista (Juros ↓)":
-        selic_sim = max(0.05, selic_h - 0.04)
-        ipca_sim = ipca_h + 0.03
+        s_s, i_s = max(0.05, selic_h - 0.04), ipca_h + 0.03
     else:
-        selic_sim = selic_h
-        ipca_sim = ipca_h
-
-    cdi_sim = selic_sim - 0.001
-    st.info(f"Selic: {selic_sim*100:.2f}% | CDI: {cdi_sim*100:.2f}% | IPCA: {ipca_sim*100:.2f}%")
+        s_s, i_s = selic_h, ipca_h
+    c_s = s_s - 0.001
+    st.info(f"Selic: {s_s*100:.2f}% | CDI: {c_s*100:.2f}% | IPCA: {i_s*100:.2f}%")
 
 tab1, tab2, tab3 = st.tabs(["📊 Comparador", "🏗️ Carteira Conjunta", "🥧 Alvos"])
 

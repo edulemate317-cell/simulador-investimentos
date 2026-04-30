@@ -6,7 +6,11 @@ import plotly.express as px
 # ==========================================
 # 1. CONFIGURAÇÕES E ESTILIZAÇÃO
 # ==========================================
-st.set_page_config(page_title="InvestSim Pro", layout="wide")
+st.set_page_config(
+    page_title="InvestSim Pro", 
+    layout="wide", 
+    initial_sidebar_state="expanded" # Garante que comece aberto
+)
 
 st.markdown("""
     <style>
